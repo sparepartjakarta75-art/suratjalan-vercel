@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build:ui": "vite build",
+    "dev": "vercel dev",
     "build": "vite build",
     "preview": "vite preview",
+    "selftest": "tsx server/dev/selftest.ts",
     "lint": "npx tsc --noEmit -p tsconfig.json",
     "typecheck": "npx tsc --noEmit -p tsconfig.json"
   },

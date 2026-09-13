@@ -23,10 +23,16 @@ Versi web dari aplikasi Surat Jalan (paritas penuh dengan versi Google Apps Scri
 
 ```
 npm install
-vercel dev        # menjalankan Vite build + api/* secara bersamaan
+npm run dev        # vercel dev (membutuhkan `npx vercel login` + env lokal SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)
 ```
 
-Atau hanya saat rebuild UI: `npm run build` + `npm run preview`.
+Atau tanpa kredensial asli — self-test end-to-end dengan mock Supabase:
+
+```
+npm run selftest   # login, CRUD SJ, penerimaan eksternal, pending, terima tujuan, PDF, ganti password
+```
+
+Hanya rebuild UI: `npm run build` + `npm run preview`.
 
 ## Catatan paritas & perbedaan dari versi Apps Script
 
