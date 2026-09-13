@@ -2,14 +2,12 @@
  * Vercel Serverless Function — endpoint RPC tunggal.
  * Semua panggilan client dipetakan ke POST /api/rpc.
  *
- * Handler dibuat anti-crash: setiap jalur (termasuk inisialisasi
- * Supabase & serialisasi respons) wajib membalas JSON. Body yang
- * bukan JSON ditegakkan lewat pre-serialisasi + send, sehingga
- * client tidak pernah menerima teks platform "A server error…".
+ * Handler dibuat anti-crash total: seluruh kode (termasuk load modul
+ * server via import dinamis, inisialisasi Supabase, dan serialisasi
+ * respons) berada di dalam try/catch, sehingga setiap kegagalan
+ * membalas JSON berisi pesan asli — client tidak akan pernah lagi
+ * menerima teks platform "A server error…".
  */
-import { initSupabase } from '../server/sheets';
-import { handleRpc, RpcError } from '../server/index';
-
 type VercelReq = any;
 type VercelRes = any;
 
@@ -36,9 +34,15 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) {
-      safeJson(res, 500, { error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diatur di environment.' });
+      safeJson(res, 500, { error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diatur di environment Vercel.' });
       return;
     }
+
+    // Import dinamis sehingga kegagalan load modul (mis. pdfkit)
+    // tertangkap dan dibalas JSON, tidak mematikan invocation.
+    const { initSupabase } = await import('../server/sheets');
+    const server = await import('../server/index');
+    const handleRpc = server.handleRpc;
 
     try {
       initSupabase(url, key);
@@ -76,7 +80,8 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
     safeJson(res, 200, { result });
   } catch (err: any) {
     const msg = err?.message || String(err) || 'Terjadi kesalahan.';
-    const isAuth = err instanceof RpcError && /sesi|login/i.test(msg);
+    const isRpc = (err?.constructor && err.constructor.name) === 'RpcError';
+    const isAuth = isRpc && /sesi|login/i.test(msg);
     safeJson(res, isAuth ? 401 : 400, { error: msg });
   }
 }
