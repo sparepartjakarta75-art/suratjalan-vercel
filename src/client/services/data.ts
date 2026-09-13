@@ -1,5 +1,5 @@
 import type { SuratJalanHeader, DetailBarang, Cabang, JenisBarang, Alamat } from '../types';
-import { GasAPI } from '../utils/gas-wrapper';
+import { Api } from '../utils/api-client';
 import { AuthService } from './auth';
 
 let daftarCache: SuratJalanHeader[] = [];
@@ -11,7 +11,7 @@ export const DataService = {
     const user = AuthService.getCurrentUser();
     if (!user) throw new Error('User tidak login');
     
-    daftarCache = await GasAPI.getDaftarSuratJalan(user.role, user.cabang);
+    daftarCache = await Api.getDaftarSuratJalan(user.role, user.cabang);
     // Clear detail cache saat load ulang
     Object.keys(detailCache).forEach(key => delete detailCache[key]);
     return daftarCache;
@@ -22,7 +22,7 @@ export const DataService = {
   getDetailSuratJalan: async (id: string): Promise<DetailBarang[]> => {
     if (detailCache[id]) return detailCache[id];
     
-    const details = await GasAPI.getDetailSuratJalan(id);
+    const details = await Api.getDetailSuratJalan(id);
     detailCache[id] = details;
     return details;
   },
@@ -45,96 +45,96 @@ export const DataService = {
   },
 
   // ===== REFERENSI DATA =====
-  loadCabangList: (): Promise<Cabang[]> => GasAPI.getCabangList(),
+  loadCabangList: (): Promise<Cabang[]> => Api.getCabangList(),
 
-  loadJenisBarangList: (): Promise<JenisBarang[]> => GasAPI.getJenisBarangList(),
+  loadJenisBarangList: (): Promise<JenisBarang[]> => Api.getJenisBarangList(),
 
-  loadAlamatList: (): Promise<Alamat[]> => GasAPI.getAlamatList(),
+  loadAlamatList: (): Promise<Alamat[]> => Api.getAlamatList(),
 
   // ===== EDIT =====
   getSuratJalanForEdit: async (id: string) => {
     const user = AuthService.getCurrentUser();
     if (!user) throw new Error('User tidak login');
-    const result = await GasAPI.getSuratJalanForEdit(id, user.role, user.cabang);
+    const result = await Api.getSuratJalanForEdit(id, user.role, user.cabang);
     if (!result || !result.success) throw new Error(result?.message || 'Gagal memuat data edit');
     return result;
   },
 
   // ===== CRUD OPERATIONS =====
-  saveSuratJalan: (payload: any) => GasAPI.simpanSuratJalan(payload),
+  saveSuratJalan: (payload: any) => Api.simpanSuratJalan(payload),
 
-  updateSuratJalan: (id: string, payload: any) => GasAPI.updateSuratJalan(id, payload),
+  updateSuratJalan: (id: string, payload: any) => Api.updateSuratJalan(id, payload),
 
   deleteSuratJalan: async (id: string, role?: string, cabang?: string) => {
-    const result = await GasAPI.deleteSuratJalan(id, role || '', cabang || '');
+    const result = await Api.deleteSuratJalan(id, role || '', cabang || '');
     if (!result.success) throw new Error(result.message);
     return result;
   },
 
   // ===== OPERATIONS =====
   updateStatusFisikDetail: (idDetail: string, status: string, role: string, username: string) =>
-    GasAPI.updateStatusFisikDetail(idDetail, status, role, username),
+    Api.updateStatusFisikDetail(idDetail, status, role, username),
 
   batalTerima: (id: string, role: string, username: string) =>
-    GasAPI.batalTerima(id, role, username),
+    Api.batalTerima(id, role, username),
 
   batalkanPenerimaan: async (id: string, role: string, username: string) => {
-    const result = await GasAPI.batalkanPenerimaan(id, role, username);
+    const result = await Api.batalkanPenerimaan(id, role, username);
     if (!result.success) throw new Error(result.message);
     return result;
   },
 
   updatePengirimanLanjutan: async (id: string, payload: any) => {
-    const result = await GasAPI.updatePengirimanLanjutan(id, payload);
+    const result = await Api.updatePengirimanLanjutan(id, payload);
     if (!result.success) throw new Error(result.message);
     return result;
   },
 
   simpanPenerimaanBarang: (idSuratJalan: string, items: any[], role: string, username: string) =>
-    GasAPI.simpanPenerimaanBarang(idSuratJalan, items, role, username),
+    Api.simpanPenerimaanBarang(idSuratJalan, items, role, username),
 
   // Penerimaan oleh tujuan akhir (cabang)
   loadDaftarSuratJalanUntukTujuan: async (cabangTujuan: string) => {
-    const list = await GasAPI.getDaftarSuratJalanUntukTujuan(cabangTujuan);
+    const list = await Api.getDaftarSuratJalanUntukTujuan(cabangTujuan);
     return list;
   },
 
   terimaBarangTujuan: (idSuratJalan: string, items: any[], role: string, username: string, cabangUser: string) =>
-    GasAPI.terimaBarangTujuan(idSuratJalan, items, role, username, cabangUser),
+    Api.terimaBarangTujuan(idSuratJalan, items, role, username, cabangUser),
 
   terimaBarangEksternal: (idSuratJalan: string, items: any[], username: string, externalSource: string) =>
-    GasAPI.terimaBarangEksternal(idSuratJalan, items, username, externalSource),
+    Api.terimaBarangEksternal(idSuratJalan, items, username, externalSource),
 
   simpanPenerimaanEksternal: (payload: any) =>
-    GasAPI.simpanPenerimaanEksternal(payload),
+    Api.simpanPenerimaanEksternal(payload),
 
   loadDaftarPenerimaanEksternal: async () => {
-    return await GasAPI.getDaftarPenerimaanEksternal();
+    return await Api.getDaftarPenerimaanEksternal();
   },
 
   hapusPenerimaanEksternal: (id: string) =>
-    GasAPI.hapusPenerimaanEksternal(id),
+    Api.hapusPenerimaanEksternal(id),
 
   getPenerimaanEksternalDetail: (id: string) =>
-    GasAPI.getPenerimaanEksternalDetail(id),
+    Api.getPenerimaanEksternalDetail(id),
 
   updatePenerimaanEksternal: (id: string, payload: any) =>
-    GasAPI.updatePenerimaanEksternal(id, payload),
+    Api.updatePenerimaanEksternal(id, payload),
 
   cetakPenerimaanEksternal: (id: string) =>
-    GasAPI.cetakPenerimaanEksternal(id),
+    Api.cetakPenerimaanEksternal(id),
 
   loadDaftarKirimanPending: async () => {
     const user = AuthService.getCurrentUser();
     if (!user) throw new Error('User tidak login');
-    return await GasAPI.getDaftarKirimanPending(user.role, user.cabang);
+    return await Api.getDaftarKirimanPending(user.role, user.cabang);
   },
 
   loadOpenPenerimaanEksternalUntukTujuan: (tujuanSite: string) =>
-    GasAPI.getOpenPenerimaanEksternalUntukTujuan(tujuanSite),
+    Api.getOpenPenerimaanEksternalUntukTujuan(tujuanSite),
 
   generatePdf: (id: string, nama: string) =>
-    GasAPI.buatPdfSuratJalan(id, nama),
+    Api.buatPdfSuratJalan(id, nama),
 
   invalidateDaftarCache: () => {
     daftarCache = [];

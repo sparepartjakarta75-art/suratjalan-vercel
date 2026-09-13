@@ -4,16 +4,15 @@ Versi web dari aplikasi Surat Jalan (paritas penuh dengan versi Google Apps Scri
 
 ## Arsitektur
 
-- **Client**: SPA vanilla TS + Tailwind/DaisyUI (sama persis dengan versi Apps Script). Semua komponen memanggil `GasAPI` (`src/client/utils/gas-wrapper.ts`) yang kini berbasis `fetch` ke `POST /api/rpc`.
+- **Client**: SPA vanilla TS + Tailwind/DaisyUI (sama persis dengan versi Apps Script). Semua komponen memanggil `Api` (`src/client/utils/api-client.ts`) yang berbasis `fetch` ke `POST /api/rpc`.
 - **Server**: Vercel Serverless Function `api/rpc.ts` + logika bisnis di `server/*.ts` (port hampir verbatim dari `SuratJalan.ts`, `References.ts`, `Auth.ts`, `CetakPDF.ts`).
-- **Database**: satu endpoint RPC `{ fn, args }`; lapisan `server/sheets.ts` meniru API Google Sheets (virtual sheet) di atas tabel `sheet_rows` Postgres — sehingga logika Apps Script diport tanpa mengubah alur.
+- **Database**: satu endpoint RPC `{ fn, args }`. Seluruh data di tabel Postgres normal: transaksi (`surat_jalan`, `detail_surat_jalan`, `penerimaan_surat_jalan`, `detail_penerimaan_surat_jalan`) + referensi (`users`, `alamat`, `ref_cabang`, `ref_jenis_barang`) + `sessions`. Server mengakses langsung via query Supabase (tanpa virtual-sheet).
 - **PDF**: `pdfkit` (murni Node) menggantikan `HtmlService.getAs('application/pdf')`.
 
 ## Setup di Vercel
 
-1. Buat project Supabase, lalu jalankan migration `supabase/migrations/001_schema.sql` (SQL Editor). Otomatis membuat tabel & seed data awal:
-   - Login admin: `admin` / `admin123` (cabang JKT, role admin)
-   - Login cabang: `cabang` / `cabang123` (cabang BDG)
+1. Buat project Supabase, lalu jalankan semua migration `supabase/migrations/*.sql` — urut dari `001` s/d `004` (atau `npx supabase db push`). Hasil akhir: tabel Postgres berisi data produksi dari Excel `src/SURAT_JALAN_CIKUPA.xlsx` (transaksi + referensi; `sheet_rows` sudah di-drop).
+   - Login pakai akun dari tabel `users` hasil import (mis. `adminjkt` / `admin123`).
 2. Di dashboard Vercel, hubungkan repo `suratjalan-vercel` (framework auto—Vite). Atur environment variables:
    - `SUPABASE_URL` — Project Settings → API → Project URL
    - `SUPABASE_SERVICE_ROLE_KEY` — Project Settings → API → `service_role` key (jangan bocorkan ke client)
@@ -43,8 +42,8 @@ Hanya rebuild UI: `npm run build` + `npm run preview`.
 
 ## Migrasi data dari Apps Script
 
-Data "sheet" versi Apps Script bisa diekspor ke `sheet_rows`:
+Data versi Apps Script dimigrasikan lewat migration (bukan `sheet_rows` lagi):
 
-- Ambil isi tiap sheet sebagai CSV/TSV (baris pertama = header).
-- Untuk tiap baris, insert `{"name": "<NAMA_SHEET>", "ord": <indeks>, "row": [<nilai per kolom>]}`.
-- Nama sheet yang didukung: `USERS`, `SURAT_JALAN`, `DETAIL_SURAT_JALAN`, `REF_JENIS_BARANG`, `REF_CABANG`, `ALAMAT`, `PENERIMAAN_SURAT_JALAN`, `DETAIL_PENERIMAAN_SURAT_JALAN`.
+- `002_perf_tables.sql` — transaksi dipindah dari `sheet_rows` ke tabel relasional.
+- `003_import_xlsx.sql` — impor penuh data produksi dari `src/SURAT_JALAN_CIKUPA.xlsx`.
+- `004_reference_tables.sql` — referensi (`USERS`, `REF_CABANG`, `REF_JENIS_BARANG`, `ALAMAT`) dipindah ke tabel normal (`users`, `ref_cabang`, `ref_jenis_barang`, `alamat`), lalu `sheet_rows` di-drop.

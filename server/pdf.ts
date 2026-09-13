@@ -9,9 +9,14 @@
  */
 
 import PDFDocument from 'pdfkit';
-import { ambilHeaderById_, getDetailSuratJalan, safeFormatDate } from './core';
-import { sheetToObjects_, getSheet_, Utilities, Session } from './sheets';
-import { SHEET_CABANG, SHEET_ALAMAT } from './constants';
+import {
+  ambilHeaderById_,
+  getDetailSuratJalan,
+  safeFormatDate,
+  getCabangList,
+  getAlamatRef,
+} from './core';
+import { Utilities, Session } from './sheets';
 import { getPenerimaanEksternalDetail } from './core';
 
 const PAGE_W = 595.28; // A4 portrait points
@@ -44,8 +49,8 @@ export async function buatPdfSuratJalan(idSuratJalan: string, namaPencetak: stri
     if (!header) return { success: false, message: 'Data surat jalan tidak ditemukan.' };
 
     const details = await getDetailSuratJalan(idSuratJalan);
-    const cabangList = sheetToObjects_(getSheet_(SHEET_CABANG));
-    const alamatData = sheetToObjects_(getSheet_(SHEET_ALAMAT));
+    const cabangList = await getCabangList();
+    const alamatData = await getAlamatRef();
 
     let alamatTujuan: any = null;
     if (header['Tujuan Akhir']) {

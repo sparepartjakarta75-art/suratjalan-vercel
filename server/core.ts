@@ -13,17 +13,10 @@
 
 import {
   getSupabase,
-  getSheet_,
-  sheetToObjects_,
   Utilities,
   Session,
   Logger,
 } from './sheets';
-import {
-  SHEET_JENIS_BARANG,
-  SHEET_CABANG,
-  SHEET_ALAMAT,
-} from './constants';
 
 const BULAN_ROMAWI = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
@@ -1113,99 +1106,104 @@ export async function getOpenPenerimaanEksternalUntukTujuan(tujuanSite) {
 }
 
 /* ===================== REFERENCES ===================== */
-export function getJenisBarangList() {
-  return sheetToObjects_(getSheet_(SHEET_JENIS_BARANG));
+
+async function fetchRef_(table: string): Promise<any[]> {
+  const { data, error } = await getSupabase()
+    .from(table)
+    .select('*');
+  if (error) throw new Error('Gagal membaca ' + table + ': ' + error.message);
+  return data || [];
 }
 
-export function getCabangList() {
-  return sheetToObjects_(getSheet_(SHEET_CABANG));
+export async function getJenisBarangList() {
+  const rows = await fetchRef_('ref_jenis_barang');
+  return rows.map((r) => ({ Kode: r.kode, 'Nama Jenis': r.nama }));
 }
 
-export function getAlamatList() {
-  const sheet = getSheet_(SHEET_ALAMAT);
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return [];
-  const headers = data[0];
-  const siteCol = headers.indexOf('SITE');
-  const wilayahCol = headers.indexOf('WILAYAH');
-  if (siteCol === -1) return [];
-
-  return data.slice(1)
-    .filter((r) => r[siteCol])
-    .map((r) => ({ site: r[siteCol], wilayah: wilayahCol !== -1 ? r[wilayahCol] : '' }));
+export async function getCabangList() {
+  const rows = await fetchRef_('ref_cabang');
+  return rows.map((r) => ({ Kode: r.kode, 'Nama Cabang': r.nama }));
 }
 
-export function getAlamatFullList() {
-  const raw = sheetToObjects_(getSheet_(SHEET_ALAMAT));
-  const keyMap: Record<string, string> = {
-    SITE: 'site', WILAYAH: 'wilayah', PENGIRIM: 'pengirim',
-    PIC: 'pic', DEPT: 'dept', ALAMAT: 'alamat',
-    KELURAHAN: 'kelurahan', KECAMATAN: 'kecamatan', KOTA: 'kota', TLP: 'tlp',
-  };
-  return raw.map((row: any) => {
-    const obj: Record<string, string> = {};
-    for (const [sheetKey, clientKey] of Object.entries(keyMap)) {
-      obj[clientKey] = row[sheetKey] || '';
-    }
-    return obj;
-  });
+export async function getAlamatList() {
+  const rows = await fetchRef_('alamat');
+  return rows.map((r) => ({ site: r.site, wilayah: r.wilayah || '' }));
 }
 
-export function simpanAlamat(payload: any) {
-  if (!payload.site) return { success: false, message: 'SITE wajib diisi.' };
-  const sheet = getSheet_(SHEET_ALAMAT);
-  const data = sheet.getDataRange().getValues();
-  if (data.length === 0) return { success: false, message: 'Sheet ALAMAT kosong.' };
+export async function getAlamatFullList() {
+  const rows = await fetchRef_('alamat');
+  return rows.map((r) => ({
+    site: r.site || '',
+    wilayah: r.wilayah || '',
+    pengirim: r.pengirim || '',
+    pic: r.pic || '',
+    dept: r.dept || '',
+    alamat: r.alamat || '',
+    kelurahan: r.kelurahan || '',
+    kecamatan: r.kecamatan || '',
+    kota: r.kota || '',
+    tlp: r.tlp || '',
+  }));
+}
 
-  const headers = data[0];
-  const siteCol = headers.indexOf('SITE');
+/** Untuk PDF: baris alamat dengan key ala-sheet (SITE, PENGIRIM, ...). */
+export async function getAlamatRef() {
+  const rows = await fetchRef_('alamat');
+  return rows.map((r) => ({
+    SITE: r.site || '',
+    WILAYAH: r.wilayah || '',
+    PENGIRIM: r.pengirim || '',
+    PIC: r.pic || '',
+    DEPT: r.dept || '',
+    ALAMAT: r.alamat || '',
+    KELURAHAN: r.kelurahan || '',
+    KECAMATAN: r.kecamatan || '',
+    KOTA: r.kota || '',
+    TLP: r.tlp || '',
+  }));
+}
 
-  let existRow = -1;
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][siteCol]).trim().toLowerCase() === String(payload.site).trim().toLowerCase()) {
-      existRow = i + 1;
-      break;
-    }
+const ALAMAT_FIELDS = ['wilayah', 'pengirim', 'pic', 'dept', 'alamat', 'kelurahan', 'kecamatan', 'kota', 'tlp'];
+
+export async function simpanAlamat(payload: any) {
+  if (!payload || !payload.site) return { success: false, message: 'SITE wajib diisi.' };
+  const db = getSupabase();
+  const upsertRow: Record<string, any> = { site: payload.site };
+  for (const f of ALAMAT_FIELDS) {
+    if (payload[f] !== undefined) upsertRow[f] = payload[f];
   }
 
-  const colMap: Record<string, string> = {
-    site: 'SITE', wilayah: 'WILAYAH', pengirim: 'PENGIRIM',
-    pic: 'PIC', dept: 'DEPT', alamat: 'ALAMAT',
-    kelurahan: 'KELURAHAN', kecamatan: 'KECAMATAN', kota: 'KOTA', tlp: 'TLP',
-  };
+  const { data: existing, error: readErr } = await db
+    .from('alamat')
+    .select('site')
+    .eq('site', payload.site)
+    .maybeSingle();
+  if (readErr) throw new Error('Gagal membaca alamat: ' + readErr.message);
 
-  if (existRow > 0) {
-    for (const [key, colName] of Object.entries(colMap)) {
-      const colIdx = headers.indexOf(colName);
-      if (colIdx !== -1 && payload[key] !== undefined) {
-        sheet.getRange(existRow, colIdx + 1).setValue(payload[key]);
-      }
-    }
+  if (existing) {
+    const { error } = await db.from('alamat').update(upsertRow).eq('site', payload.site);
+    if (error) throw new Error('Gagal memperbarui alamat: ' + error.message);
   } else {
-    const newRow = headers.map((h: string) => {
-      const entry = Object.entries(colMap).find(([, v]) => v === h);
-      return entry ? (payload[entry[0]] || '') : '';
-    });
-    sheet.appendRow(newRow);
+    const { error } = await db.from('alamat').insert(upsertRow);
+    if (error) throw new Error('Gagal menambah alamat: ' + error.message);
   }
 
   return { success: true };
 }
 
-export function hapusAlamat(site: string) {
+export async function hapusAlamat(site: string) {
   if (!site) return { success: false, message: 'SITE wajib diisi.' };
-  const sheet = getSheet_(SHEET_ALAMAT);
-  const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return { success: false, message: 'Tidak ada data.' };
+  const db = getSupabase();
+  const { data: existing, error: readErr } = await db
+    .from('alamat')
+    .select('site')
+    .eq('site', site)
+    .maybeSingle();
+  if (readErr) throw new Error('Gagal membaca alamat: ' + readErr.message);
+  if (!existing) return { success: false, message: 'Alamat tidak ditemukan.' };
 
-  const headers = data[0];
-  const siteCol = headers.indexOf('SITE');
+  const { error } = await db.from('alamat').delete().eq('site', site);
+  if (error) throw new Error('Gagal menghapus alamat: ' + error.message);
 
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][siteCol]).trim().toLowerCase() === String(site).trim().toLowerCase()) {
-      sheet.deleteRow(i + 1);
-      return { success: true };
-    }
-  }
-  return { success: false, message: 'Alamat tidak ditemukan.' };
+  return { success: true };
 }

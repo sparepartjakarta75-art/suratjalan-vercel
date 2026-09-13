@@ -3,14 +3,14 @@
  * AUTH.TS — Login + sesi token + ganti password
  * ============================================================
  * Port dari Auth.ts (Apps Script). Sesi memakai tabel `sessions`
- * di Postgres dengan token acak 32-byte (hex). Password tetap
- * plaintext (paritas dengan versi Apps Script; perbaikan auth
- * di-defer / "pikirkan nanti").
+ * di Postgres dengan token acak 32-byte (hex). Data user dibaca
+ * langsung dari tabel `users`; detail alamat dari tabel `alamat`.
+ * Password tetap plaintext (paritas dengan versi Apps Script;
+ * perbaikan auth di-defer / "pikirkan nanti").
  * ============================================================
  */
 
-import { getSheet_, sheetToObjects_, getSupabase, safeSha256 } from './sheets';
-import { SHEET_USERS } from './constants';
+import { getSupabase, safeSha256 } from './sheets';
 import { SESSION_TTL_MS } from './constants';
 import { randomBytes } from 'node:crypto';
 
@@ -21,18 +21,21 @@ export interface UserInfo {
   role: string;
 }
 
-export function login(username: string, password: string): any {
-  const users = sheetToObjects_(getSheet_(SHEET_USERS));
-  const found = users.find(u =>
-    String(u['Username']).trim().toLowerCase() === String(username).trim().toLowerCase() &&
-    String(u['Password']) === String(password)
+export async function login(username: string, password: string): Promise<any> {
+  const db = getSupabase();
+  const { data: users, error } = await db.from('users').select('*');
+  if (error) throw new Error('Gagal membaca user: ' + error.message);
+
+  const found = (users || []).find(u =>
+    String(u.username).trim().toLowerCase() === String(username).trim().toLowerCase() &&
+    String(u.password) === String(password)
   );
   if (!found) return { success: false, message: 'Username atau password salah.' };
 
-  const alamatSheet = getSheet_('ALAMAT');
-  const alamatData = sheetToObjects_(alamatSheet);
-  const alamat = alamatData.find(a =>
-    String(a['SITE']).trim().toUpperCase() === String(found['Cabang']).trim().toUpperCase()
+  const { data: alamatData, error: aErr } = await db.from('alamat').select('*');
+  if (aErr) throw new Error('Gagal membaca alamat: ' + aErr.message);
+  const alamat = (alamatData || []).find(a =>
+    String(a.site).trim().toUpperCase() === String(found.cabang).trim().toUpperCase()
   );
 
   const token = randomBytes(32).toString('hex');
@@ -40,21 +43,21 @@ export function login(username: string, password: string): any {
   return {
     success: true,
     token,
-    username: found['Username'],
-    nama: found['Nama'] || found['Username'],
-    cabang: found['Cabang'],
-    role: found['Role'],
-    pengirim: alamat ? (alamat['PENGIRIM'] || '') : '',
+    username: found.username,
+    nama: found.nama || found.username,
+    cabang: found.cabang,
+    role: found.role,
+    pengirim: alamat ? (alamat.pengirim || '') : '',
     alamatLengkap: alamat ? {
-      site: alamat['SITE'] || '',
-      wilayah: alamat['WILAYAH'] || '',
-      pic: alamat['PIC'] || '',
-      dept: alamat['DEPT'] || '',
-      alamat: alamat['ALAMAT'] || '',
-      kelurahan: alamat['KELURAHAN'] || '',
-      kecamatan: alamat['KECAMATAN'] || '',
-      kota: alamat['KOTA'] || '',
-      tlp: alamat['TLP'] || '',
+      site: alamat.site || '',
+      wilayah: alamat.wilayah || '',
+      pic: alamat.pic || '',
+      dept: alamat.dept || '',
+      alamat: alamat.alamat || '',
+      kelurahan: alamat.kelurahan || '',
+      kecamatan: alamat.kecamatan || '',
+      kota: alamat.kota || '',
+      tlp: alamat.tlp || '',
     } : null,
   };
 }
@@ -87,21 +90,23 @@ export async function validateSession(token: string): Promise<UserInfo | null> {
     return null;
   }
 
-  const user = await getUserByUsername(data.username);
-  return user;
+  return await getUserByUsername(data.username);
 }
 
 export async function getUserByUsername(username: string): Promise<UserInfo | null> {
-  const users = sheetToObjects_(getSheet_(SHEET_USERS));
-  const found = users.find(u =>
-    String(u['Username']).trim().toLowerCase() === String(username).trim().toLowerCase()
+  const db = getSupabase();
+  const { data: users, error } = await db.from('users').select('*');
+  if (error) return null;
+
+  const found = (users || []).find(u =>
+    String(u.username).trim().toLowerCase() === String(username).trim().toLowerCase()
   );
   if (!found) return null;
   return {
-    username: found['Username'],
-    nama: found['Nama'] || found['Username'],
-    cabang: found['Cabang'],
-    role: found['Role'],
+    username: found.username,
+    nama: found.nama || found.username,
+    cabang: found.cabang,
+    role: found.role,
   };
 }
 
@@ -116,7 +121,7 @@ export async function destroySession(token: string): Promise<void> {
  * Ganti password login.
  * payload: { username, passwordLama, passwordBaru }
  */
-export function gantiPassword(payload: any): any {
+export async function gantiPassword(payload: any): Promise<any> {
   if (!payload || !payload.username || !payload.username.trim()) {
     return { success: false, message: 'Username tidak valid.' };
   }
@@ -130,32 +135,24 @@ export function gantiPassword(payload: any): any {
     return { success: false, message: 'Password baru tidak boleh sama dengan password lama.' };
   }
 
-  const sheet = getSheet_(SHEET_USERS);
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const usernameCol = headers.indexOf('Username');
-  const passwordCol = headers.indexOf('Password');
-  if (usernameCol === -1 || passwordCol === -1) {
-    return { success: false, message: 'Kolom Username/Password tidak ditemukan di sheet USERS.' };
-  }
+  const db = getSupabase();
+  const { data: users, error } = await db.from('users').select('username, password');
+  if (error) throw new Error('Gagal membaca user: ' + error.message);
 
   const targetUsername = String(payload.username).trim().toLowerCase();
-  let rowIdx = -1;
-  let passwordSaatIni = '';
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][usernameCol] || '').trim().toLowerCase() === targetUsername) {
-      rowIdx = i + 1;
-      passwordSaatIni = data[i][passwordCol] || '';
-      break;
-    }
-  }
-  if (rowIdx === -1) {
-    return { success: false, message: 'Username tidak ditemukan.' };
-  }
-  if (String(passwordSaatIni) !== String(payload.passwordLama)) {
+  const found = (users || []).find(u =>
+    String(u.username).trim().toLowerCase() === targetUsername
+  );
+  if (!found) return { success: false, message: 'Username tidak ditemukan.' };
+  if (String(found.password) !== String(payload.passwordLama)) {
     return { success: false, message: 'Password lama salah.' };
   }
 
-  sheet.getRange(rowIdx, passwordCol + 1).setValue(String(payload.passwordBaru));
+  const { error: updError } = await db
+    .from('users')
+    .update({ password: String(payload.passwordBaru) })
+    .eq('username', found.username);
+  if (updError) throw new Error('Gagal mengganti password: ' + updError.message);
+
   return { success: true };
 }

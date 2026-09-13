@@ -1,6 +1,6 @@
 /**
  * Vercel Serverless Function — endpoint RPC tunggal.
- * Semua panggilan GasAPI dipetakan ke POST /api/rpc.
+ * Semua panggilan client dipetakan ke POST /api/rpc.
  */
 import { initSupabase } from '../server/sheets';
 import { handleRpc, RpcError } from '../server/index';

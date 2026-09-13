@@ -1,4 +1,4 @@
-import { GasAPI } from '../utils/gas-wrapper';
+import { Api } from '../utils/api-client';
 import { showMessage } from '../utils/messaging';
 import { AuthService } from '../services/auth';
 
@@ -107,7 +107,7 @@ function setupPengaturanAkunEvents(section: HTMLElement) {
     if (btn) btn.disabled = true;
 
     try {
-      const result = await GasAPI.gantiPassword({ username: user.username, passwordLama: passLama, passwordBaru: passBaru });
+      const result = await Api.gantiPassword({ username: user.username, passwordLama: passLama, passwordBaru: passBaru });
       if (!result.success) {
         showMessage({ type: 'error', text: result.message || 'Gagal mengubah password.' });
         return;

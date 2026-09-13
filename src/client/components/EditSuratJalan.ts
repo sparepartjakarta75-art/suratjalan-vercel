@@ -1,6 +1,6 @@
 import { DataService } from '../services/data';
 import { AuthService } from '../services/auth';
-import { GasAPI } from '../utils/gas-wrapper';
+import { Api } from '../utils/api-client';
 import { showMessage } from '../utils/messaging';
 
 // ============================================================
@@ -211,7 +211,7 @@ async function mulaiEdit(id: string) {
     (section.querySelector('#eTujuanAkhir') as HTMLSelectElement).value = header.tujuanAkhir || '';
 
     // Populate pengirim info from ALAMAT sheet based on asal
-    const alamatFull = await GasAPI.getAlamatFullList();
+    const alamatFull = await Api.getAlamatFullList();
     const alamatAsal = alamatFull.find((a: any) => a.site === header.cabangAsal);
     if (alamatAsal) {
       const pengirimInfo = section.querySelector('#pengirimInfoEdit') as HTMLElement;

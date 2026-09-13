@@ -1,4 +1,4 @@
-import { GasAPI } from '../utils/gas-wrapper';
+import { Api } from '../utils/api-client';
 import { showMessage } from '../utils/messaging';
 import { paginate, getFilterValue, renderPagination, UKURAN_HALAMAN } from '../utils/pagination';
 
@@ -116,7 +116,7 @@ async function loadData() {
 
   // Fetch data
   try {
-    allData = await GasAPI.getAlamatFullList();
+    allData = await Api.getAlamatFullList();
   } catch {
     allData = [];
   }
@@ -248,7 +248,7 @@ function openForm(row: any | null) {
     btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Menyimpan...';
 
     try {
-      await GasAPI.simpanAlamat(payload);
+      await Api.simpanAlamat(payload);
       showMessage(editingSite ? 'Alamat berhasil diupdate.' : 'Alamat berhasil ditambahkan.', 'success');
       closeForm();
       loadData();
@@ -297,7 +297,7 @@ function confirmDelete(site: string) {
 
   document.getElementById('btnConfirmDel')?.addEventListener('click', async () => {
     try {
-      await GasAPI.hapusAlamat(site);
+      await Api.hapusAlamat(site);
       showMessage('Alamat berhasil dihapus.', 'success');
       closeForm();
       loadData();

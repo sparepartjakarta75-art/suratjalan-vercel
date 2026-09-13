@@ -1,6 +1,6 @@
 /**
  * SELF TEST — verifikasi alur RPC end-to-end tanpa Supabase asli.
- * Menyuntikkan mock PostgREST (tabel sheet_rows + sessions) lalu
+ * Menyuntikkan mock PostgREST (tabel Postgres normal + sessions) lalu
  * menjalankan skenario: login -> buat SJ -> daftar -> penerimaan
  * eksternal -> kiriman pending -> open eksternal -> cetak PDF.
  *
@@ -17,7 +17,10 @@ type Filter = { field: string; op: string; value: any };
 
 class MockDB {
   tables: Record<string, Row[]> = {
-    sheet_rows: [],
+    users: [],
+    ref_cabang: [],
+    ref_jenis_barang: [],
+    alamat: [],
     sessions: [],
     surat_jalan: [],
     detail_surat_jalan: [],
@@ -170,30 +173,22 @@ class Query {
 
 /* ================= SEED ================= */
 
-const seed: Array<[string, number, any[]]> = [
-  ['USERS', 0, ['Username', 'Password', 'Cabang', 'Role', 'Nama']],
-  ['USERS', 1, ['admin', 'admin123', 'JKT', 'admin', 'Administrator Pusat']],
-  ['USERS', 2, ['cabang', 'cabang123', 'BDG', 'cabang', 'Staff Cabang Bandung']],
-  ['USERS', 3, ['sly', 'sly123', 'SLY', 'cabang', 'Staff Cabang Sly']],
-  ['USERS', 4, ['mlg', 'mlg123', 'MLG', 'cabang', 'Staff Cabang Malang']],
-  ['REF_CABANG', 0, ['Kode', 'Nama Cabang']],
-  ['REF_CABANG', 1, ['JKT', 'Jakarta (Pusat)']],
-  ['REF_CABANG', 2, ['MLG', 'Malang']],
-  ['REF_CABANG', 3, ['SUB', 'Surabaya']],
-  ['REF_JENIS_BARANG', 0, ['Kode', 'Nama Jenis']],
-  ['REF_JENIS_BARANG', 1, ['SVRMB', 'Sparepart Robot Main Board']],
-  ['ALAMAT', 0, ['SITE', 'WILAYAH', 'PENGIRIM', 'PIC', 'DEPT', 'ALAMAT', 'KELURAHAN', 'KECAMATAN', 'KOTA', 'TLP']],
-  ['ALAMAT', 1, ['JKT', 'DKI Jakarta', 'Bp. Admin Pusat', 'Bp. Admin Pusat', 'Gudang Pusat', 'Jl. Raya Jakarta No. 1', 'Kel. Menteng', 'Kec. Menteng', 'Jakarta Pusat 10310', '021-1234567']],
-  ['ALAMAT', 2, ['MLG', 'Jawa Timur', 'Bp. Sujarwo', 'Bp. Maryono', 'Gudang', 'Jl. Magelang Raya No. 1', '', 'Kec. Tidar', 'Magelang 56125', '0271-123456']],
-  ['SURAT_JALAN', 0, ['ID', 'No Surat Jalan', 'Tanggal', 'Cabang Asal', 'Cabang Tujuan', 'Kode Jenis Barang', 'Dikirim Via', 'Total Barang', 'Status Kirim Cikupa', 'Dibuat Oleh', 'Waktu Input', 'Perlu Diteruskan', 'Tujuan Akhir', 'Tanggal Kirim Lanjutan', 'No Truk', 'Sopir', 'Status Kirim Pusat', 'Diupdate Oleh', 'Waktu Update']],
-  ['DETAIL_SURAT_JALAN', 0, ['ID Detail', 'ID Surat Jalan', 'No', 'No Bukti', 'Deskripsi', 'Qty', 'Satuan', 'Keterangan', 'Status Fisik', 'Diterima Oleh', 'Waktu Diterima']],
-  ['PENERIMAAN_SURAT_JALAN', 0, ['ID', 'No Surat Jalan', 'Tanggal', 'Rms', 'No Truk', 'Kurir', 'No Bukti', 'Deskripsi', 'Qty', 'Satuan', 'Keterangan', 'Status Fisik', 'Diterima Oleh', 'Waktu Input']],
-  ['DETAIL_PENERIMAAN_SURAT_JALAN', 0, ['ID Detail', 'ID Surat Jalan', 'No', 'No Bukti', 'Deskripsi', 'Qty', 'Satuan', 'Keterangan', 'Status Fisik', 'Diterima Oleh', 'Waktu Diterima', 'Tujuan Site', 'Status Kirim', 'ID SJ Kirim', 'No SJ Kirim']],
+const seed: Array<[string, Row]> = [
+  ['users', { username: 'admin', password: 'admin123', cabang: 'JKT', role: 'admin', nama: 'Administrator Pusat' }],
+  ['users', { username: 'cabang', password: 'cabang123', cabang: 'BDG', role: 'cabang', nama: 'Staff Cabang Bandung' }],
+  ['users', { username: 'sly', password: 'sly123', cabang: 'SLY', role: 'cabang', nama: 'Staff Cabang Sly' }],
+  ['users', { username: 'mlg', password: 'mlg123', cabang: 'MLG', role: 'cabang', nama: 'Staff Cabang Malang' }],
+  ['ref_cabang', { kode: 'JKT', nama: 'Jakarta (Pusat)' }],
+  ['ref_cabang', { kode: 'MLG', nama: 'Malang' }],
+  ['ref_cabang', { kode: 'SUB', nama: 'Surabaya' }],
+  ['ref_jenis_barang', { kode: 'SVRMB', nama: 'Sparepart Robot Main Board' }],
+  ['alamat', { sdo: '', site: 'JKT', wilayah: 'DKI Jakarta', pengirim: 'Bp. Admin Pusat', pic: 'Bp. Admin Pusat', dept: 'Gudang Pusat', alamat: 'Jl. Raya Jakarta No. 1', kelurahan: 'Kel. Menteng', kecamatan: 'Kec. Menteng', kota: 'Jakarta Pusat 10310', tlp: '021-1234567' }],
+  ['alamat', { sdo: '', site: 'MLG', wilayah: 'Jawa Timur', pengirim: 'Bp. Sujarwo', pic: 'Bp. Maryono', dept: 'Gudang', alamat: 'Jl. Magelang Raya No. 1', kelurahan: '', kecamatan: 'Kec. Tidar', kota: 'Magelang 56125', tlp: '0271-123456' }],
 ];
 
 const db = new MockDB();
-for (const [name, ord, row] of seed) {
-  db.tables.sheet_rows.push({ name, ord, row });
+for (const [table, row] of seed) {
+  db.tables[table].push({ ...row });
 }
 
 setSupabaseClientForTests(db);
@@ -320,8 +315,8 @@ async function main() {
 
   // login cabang MLG — user 'cabang' di seed ber-cabang BDG; gunakan cabang BDG sesuai tujuan? SJ ditujukan ke MLG.
   // Untuk simulasi, buat pengguna cabang MLG on the fly.
-  db.tables.sheet_rows.push({ name: 'USERS', ord: 3, row: ['mlg', 'mlg123', 'MLG', 'cabang', 'Staff Malang'] });
-  db.tables.sheet_rows.push({ name: 'USERS', ord: 4, row: ['sly', 'sly123', 'SLY', 'cabang', 'Staff Sly'] });
+  db.tables.users.push({ username: 'mlg', password: 'mlg123', cabang: 'MLG', role: 'cabang', nama: 'Staff Malang' });
+  db.tables.users.push({ username: 'sly', password: 'sly123', cabang: 'SLY', role: 'cabang', nama: 'Staff Sly' });
   const loginMlg = await call('login', ['mlg', 'mlg123'], '');
   const tokenMlg = loginMlg.token;
 

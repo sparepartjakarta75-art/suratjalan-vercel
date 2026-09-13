@@ -1,6 +1,6 @@
 import { DataService } from '../services/data';
 import { AuthService } from '../services/auth';
-import { GasAPI } from '../utils/gas-wrapper';
+import { Api } from '../utils/api-client';
 import { showMessage } from '../utils/messaging';
 import type { JenisBarang, Alamat } from '../types';
 
@@ -252,7 +252,7 @@ async function loadReferensiData(section: HTMLElement) {
     const [jenisBarang, alamat, alamatFull] = await Promise.all([
       DataService.loadJenisBarangList(),
       DataService.loadAlamatList(),
-      GasAPI.getAlamatFullList()
+      Api.getAlamatFullList()
     ]);
 
     // Set cabang asal

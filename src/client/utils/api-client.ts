@@ -1,10 +1,10 @@
 /**
- * GasAPI wrapper — fetch-based client for Vercel backend.
- * Keeps the same GasAPI interface & callGasFunction signature
+ * Api wrapper — fetch-based client for Vercel backend.
+ * Keeps the same interface & callApiFunction signature
  * so all existing components & services work without changes.
  */
 
-export function callGasFunction(functionName: string, ...args: any[]): Promise<any> {
+export function callApiFunction(functionName: string, ...args: any[]): Promise<any> {
   const token = localStorage.getItem('sj_token') || '';
   return fetch('/api/rpc', {
     method: 'POST',
@@ -27,106 +27,106 @@ export function clearAuthToken() {
   localStorage.removeItem('sj_token');
 }
 
-export const GasAPI = {
+export const Api = {
   login: (username: string, password: string) =>
-    callGasFunction('login', username, password),
+    callApiFunction('login', username, password),
 
   logout: () =>
-    callGasFunction('logout'),
+    callApiFunction('logout'),
 
   gantiPassword: (payload: any) =>
-    callGasFunction('gantiPassword', payload),
+    callApiFunction('gantiPassword', payload),
 
   getDaftarSuratJalan: (role: string, cabang: string) =>
-    callGasFunction('getDaftarSuratJalan', role, cabang),
+    callApiFunction('getDaftarSuratJalan', role, cabang),
 
   getDetailSuratJalan: (id: string) =>
-    callGasFunction('getDetailSuratJalan', id),
+    callApiFunction('getDetailSuratJalan', id),
 
   getSuratJalanForEdit: (id: string, role: string, cabang: string) =>
-    callGasFunction('getSuratJalanForEdit', id, role, cabang),
+    callApiFunction('getSuratJalanForEdit', id, role, cabang),
 
   getCabangList: () =>
-    callGasFunction('getCabangList'),
+    callApiFunction('getCabangList'),
 
   getJenisBarangList: () =>
-    callGasFunction('getJenisBarangList'),
+    callApiFunction('getJenisBarangList'),
 
   getAlamatList: () =>
-    callGasFunction('getAlamatList'),
+    callApiFunction('getAlamatList'),
 
   simpanSuratJalan: (payload: any) =>
-    callGasFunction('simpanSuratJalan', payload),
+    callApiFunction('simpanSuratJalan', payload),
 
   updateSuratJalan: (id: string, payload: any) =>
-    callGasFunction('updateSuratJalan', id, payload),
+    callApiFunction('updateSuratJalan', id, payload),
 
   hapusSuratJalan: (id: string) =>
-    callGasFunction('hapusSuratJalan', id),
+    callApiFunction('hapusSuratJalan', id),
 
   deleteSuratJalan: (id: string, role: string, cabang: string) =>
-    callGasFunction('deleteSuratJalan', id, role, cabang),
+    callApiFunction('deleteSuratJalan', id, role, cabang),
 
   updateStatusFisikDetail: (idDetail: string, status: string, role: string, username: string) =>
-    callGasFunction('updateStatusFisikDetail', idDetail, status, role, username),
+    callApiFunction('updateStatusFisikDetail', idDetail, status, role, username),
 
   batalTerima: (id: string, role: string, username: string) =>
-    callGasFunction('batalTerima', id, role, username),
+    callApiFunction('batalTerima', id, role, username),
 
   batalkanPenerimaan: (id: string, role: string, username: string) =>
-    callGasFunction('batalkanPenerimaan', id, role, username),
+    callApiFunction('batalkanPenerimaan', id, role, username),
 
   updatePengirimanLanjutan: (id: string, payload: any) =>
-    callGasFunction('updatePengirimanLanjutan', id, payload),
+    callApiFunction('updatePengirimanLanjutan', id, payload),
 
   buatPdfSuratJalan: (id: string, nama: string) =>
-    callGasFunction('buatPdfSuratJalan', id, nama),
+    callApiFunction('buatPdfSuratJalan', id, nama),
 
   bukaModalLanjutan: (id: string) =>
-    callGasFunction('bukaModalLanjutan', id),
+    callApiFunction('bukaModalLanjutan', id),
 
   getAlamatFullList: () =>
-    callGasFunction('getAlamatFullList'),
+    callApiFunction('getAlamatFullList'),
 
   simpanAlamat: (payload: any) =>
-    callGasFunction('simpanAlamat', payload),
+    callApiFunction('simpanAlamat', payload),
 
   hapusAlamat: (site: string) =>
-    callGasFunction('hapusAlamat', site),
+    callApiFunction('hapusAlamat', site),
 
   simpanPenerimaanBarang: (idSuratJalan: string, items: any[], role: string, username: string) =>
-    callGasFunction('simpanPenerimaanBarang', idSuratJalan, items, role, username),
+    callApiFunction('simpanPenerimaanBarang', idSuratJalan, items, role, username),
 
   getDaftarSuratJalanUntukTujuan: (cabangTujuan: string) =>
-    callGasFunction('getDaftarSuratJalanUntukTujuan', cabangTujuan),
+    callApiFunction('getDaftarSuratJalanUntukTujuan', cabangTujuan),
 
   terimaBarangTujuan: (idSuratJalan: string, items: any[], role: string, username: string, cabangUser: string) =>
-    callGasFunction('terimaBarangTujuan', idSuratJalan, items, role, username, cabangUser),
+    callApiFunction('terimaBarangTujuan', idSuratJalan, items, role, username, cabangUser),
 
   terimaBarangEksternal: (idSuratJalan: string, items: any[], username: string, externalSource: string) =>
-    callGasFunction('terimaBarangEksternal', idSuratJalan, items, username, externalSource),
+    callApiFunction('terimaBarangEksternal', idSuratJalan, items, username, externalSource),
 
   simpanPenerimaanEksternal: (payload: any) =>
-    callGasFunction('simpanPenerimaanEksternal', payload),
+    callApiFunction('simpanPenerimaanEksternal', payload),
 
   getDaftarPenerimaanEksternal: () =>
-    callGasFunction('getDaftarPenerimaanEksternal'),
+    callApiFunction('getDaftarPenerimaanEksternal'),
 
   hapusPenerimaanEksternal: (id: string) =>
-    callGasFunction('hapusPenerimaanEksternal', id),
+    callApiFunction('hapusPenerimaanEksternal', id),
 
   getPenerimaanEksternalDetail: (id: string) =>
-    callGasFunction('getPenerimaanEksternalDetail', id),
+    callApiFunction('getPenerimaanEksternalDetail', id),
 
   updatePenerimaanEksternal: (id: string, payload: any) =>
-    callGasFunction('updatePenerimaanEksternal', id, payload),
+    callApiFunction('updatePenerimaanEksternal', id, payload),
 
   cetakPenerimaanEksternal: (id: string) =>
-    callGasFunction('cetakPenerimaanEksternal', id),
+    callApiFunction('cetakPenerimaanEksternal', id),
 
   getDaftarKirimanPending: (role: string, cabang: string) =>
-    callGasFunction('getDaftarKirimanPending', role, cabang),
+    callApiFunction('getDaftarKirimanPending', role, cabang),
 
   getOpenPenerimaanEksternalUntukTujuan: (tujuanSite: string) =>
-    callGasFunction('getOpenPenerimaanEksternalUntukTujuan', tujuanSite),
+    callApiFunction('getOpenPenerimaanEksternalUntukTujuan', tujuanSite),
 };

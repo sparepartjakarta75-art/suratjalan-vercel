@@ -1,7 +1,7 @@
 import { DataService } from '../services/data';
 import { AuthService } from '../services/auth';
 import { showMessage } from '../utils/messaging';
-import { GasAPI } from '../utils/gas-wrapper';
+import { Api } from '../utils/api-client';
 import { paginate, uniqueValues, normalizeDate, getFilterValue, renderPagination, UKURAN_HALAMAN } from '../utils/pagination';
 import type { SuratJalanHeader, DetailBarang } from '../types';
 
@@ -308,7 +308,7 @@ async function toggleDetailPenerimaan(idSuratJalan: string) {
   try {
     const [details, alamatList] = await Promise.all([
       DataService.getDetailSuratJalan(idSuratJalan),
-      GasAPI.getAlamatFullList(),
+      Api.getAlamatFullList(),
     ]);
     DETAIL_TUJUAN_CACHE[idSuratJalan] = details;
 

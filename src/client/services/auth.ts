@@ -1,5 +1,5 @@
 import type { User } from '../types';
-import { GasAPI, saveAuthToken, clearAuthToken } from '../utils/gas-wrapper';
+import { Api, saveAuthToken, clearAuthToken } from '../utils/api-client';
 
 let currentUser: User | null = null;
 
@@ -15,7 +15,7 @@ export const AuthService = {
   },
 
   login: async (username: string, password: string): Promise<User> => {
-    const result = await GasAPI.login(username, password);
+    const result = await Api.login(username, password);
     if (!result.success) {
       throw new Error(result.message || 'Login gagal');
     }
@@ -30,7 +30,7 @@ export const AuthService = {
     currentUser = null;
     clearAuthToken();
     try {
-      GasAPI.logout?.().catch(() => {});
+      Api.logout?.().catch(() => {});
     } catch {
       // abaikan
     }

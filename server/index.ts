@@ -2,14 +2,13 @@
  * ============================================================
  * INDEX.TS — RPC dispatcher
  * ============================================================
- * Menerima { fn, args } dari client (gas-wrapper fetch ke /api/rpc),
+ * Menerima { fn, args } dari client (api-client fetch ke /api/rpc),
  * memuat virtual store, membubuhkan identitas user dari token sesi
  * (mengganti role/cabang/username yang dikirim client agar tidak
  * bisa dipalsukan), menjalankan handler, lalu mem-flush perubahan.
  * ============================================================
  */
 
-import { loadStore, flushStore } from './sheets';
 import {
   login as authLogin,
   createSession,
@@ -139,8 +138,6 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
   const implKey = IMPLEMENTED[fn];
   if (!implKey) throw new RpcError('Fungsi "' + fn + '" tidak dikenal.');
 
-  await loadStore();
-
   // ---------- Public endpoint ----------
   if (fn === 'health') {
     return { ok: true };
@@ -148,11 +145,10 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
 
   if (fn === 'login') {
     const [username, password] = args || [];
-    const result = authLogin(username, password);
+    const result = await authLogin(username, password);
     if (result.success) {
       await createSession(result.token, result.username);
     }
-    await flushStore();
     return result;
   }
 
@@ -170,7 +166,7 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
   let result: any;
   switch (implKey) {
     case 'gantiPassword':
-      result = gantiPassword(safeArgs[0]);
+      result = await gantiPassword(safeArgs[0]);
       break;
 
     case 'getDaftarSuratJalan': result = await core.getDaftarSuratJalan(safeArgs[0], safeArgs[1]); break;
@@ -180,8 +176,8 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
     case 'getJenisBarangList': result = core.getJenisBarangList(); break;
     case 'getAlamatList': result = core.getAlamatList(); break;
     case 'getAlamatFullList': result = core.getAlamatFullList(); break;
-    case 'simpanAlamat': result = core.simpanAlamat(safeArgs[0]); break;
-    case 'hapusAlamat': result = core.hapusAlamat(safeArgs[0]); break;
+    case 'simpanAlamat': result = await core.simpanAlamat(safeArgs[0]); break;
+    case 'hapusAlamat': result = await core.hapusAlamat(safeArgs[0]); break;
 
     case 'simpanSuratJalan': result = await core.simpanSuratJalan(safeArgs[0]); break;
     case 'updateSuratJalan': result = await core.updateSuratJalan(safeArgs[0], safeArgs[1]); break;
@@ -212,6 +208,5 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
       throw new RpcError('Fungsi "' + fn + '" tidak diimplementasikan.');
   }
 
-  await flushStore();
   return result;
 }
