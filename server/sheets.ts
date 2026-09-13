@@ -22,6 +22,11 @@ export function initSupabase(url: string, serviceKey: string): SupabaseClient {
   return supabase;
 }
 
+/** Untuk pengujian lokal: ganti klien dengan mock. */
+export function setSupabaseClientForTests(client: any): void {
+  supabase = client;
+}
+
 export function getSupabase(): SupabaseClient {
   if (!supabase) throw new Error('Supabase belum diinisialisasi (cek env SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY).');
   return supabase;
