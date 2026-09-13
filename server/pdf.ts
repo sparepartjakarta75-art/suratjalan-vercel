@@ -40,10 +40,10 @@ function namaCabangFn(cabangList: any[], kode: string): string {
  */
 export async function buatPdfSuratJalan(idSuratJalan: string, namaPencetak: string): Promise<any> {
   try {
-    const header = ambilHeaderById_(idSuratJalan);
+    const header = await ambilHeaderById_(idSuratJalan);
     if (!header) return { success: false, message: 'Data surat jalan tidak ditemukan.' };
 
-    const details = getDetailSuratJalan(idSuratJalan);
+    const details = await getDetailSuratJalan(idSuratJalan);
     const cabangList = sheetToObjects_(getSheet_(SHEET_CABANG));
     const alamatData = sheetToObjects_(getSheet_(SHEET_ALAMAT));
 
@@ -200,7 +200,7 @@ export async function buatPdfSuratJalan(idSuratJalan: string, namaPencetak: stri
  */
 export async function buatPdfPenerimaanEksternal(id: string): Promise<any> {
   try {
-    const result = getPenerimaanEksternalDetail(id);
+    const result = await getPenerimaanEksternalDetail(id);
     if (!result.success) return result;
 
     const h = result.header;

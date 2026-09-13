@@ -153,12 +153,25 @@ const KNOWN_SHEETS: Record<string, string[]> = {
   ],
 };
 
+/**
+ * Nama sheet yang sudah dipindah ke tabel relasional (migration 002).
+ * Data ini TIDAK lagi dimuat dari sheet_rows — diakses langsung via
+ * query Supabase di core.ts agar performa tetap tinggi walau data besar.
+ */
+export const SHEET_MIGRATED_TO_TABLES = [
+  'SURAT_JALAN',
+  'DETAIL_SURAT_JALAN',
+  'PENERIMAAN_SURAT_JALAN',
+  'DETAIL_PENERIMAAN_SURAT_JALAN',
+];
+
 export async function loadStore(): Promise<void> {
   SHEET_TABLES.length = 0 as any;
   cache.clear();
   const { data, error } = await getSupabase()
     .from('sheet_rows')
     .select('name, ord, row')
+    .not('name', 'in', '(' + SHEET_MIGRATED_TO_TABLES.map((n) => '"' + n + '"').join(',') + ')')
     .order('ord', { ascending: true });
   if (error) throw new Error('Gagal membaca store: ' + error.message);
 

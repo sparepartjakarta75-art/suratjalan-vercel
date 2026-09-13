@@ -13,11 +13,46 @@ import { handleRpc, RpcError } from '../index';
 
 type Row = any;
 
+type Filter = { field: string; op: string; value: any };
+
 class MockDB {
-  tables: Record<string, Row[]> = { sheet_rows: [], sessions: [] };
+  tables: Record<string, Row[]> = {
+    sheet_rows: [],
+    sessions: [],
+    surat_jalan: [],
+    detail_surat_jalan: [],
+    penerimaan_surat_jalan: [],
+    detail_penerimaan_surat_jalan: [],
+  };
 
   from(table: string) {
     return new Query(this, table);
+  }
+
+  _matches(r: Row, f: Filter): boolean {
+    if (f.op === 'eq') return r[f.field] === f.value;
+    if (f.op === 'neq') return r[f.field] !== f.value;
+    if (f.op === 'in') {
+      const list = Array.isArray(f.value) ? f.value : [f.value];
+      return list.some((v) => r[f.field] === v);
+    }
+    if (f.op === 'not-in') {
+      const toks = String(f.value)
+        .match(/"([^"]*)"/g)
+        ?.map((t) => t.replace(/"/g, '')) || [];
+      return !toks.includes(r[f.field]);
+    }
+    if (f.op === 'gte') {
+      const a = new Date(r[f.field]).getTime();
+      const b = new Date(f.value).getTime();
+      return !isNaN(a) && !isNaN(b) && a >= b;
+    }
+    if (f.op === 'lt') {
+      const a = new Date(r[f.field]).getTime();
+      const b = new Date(f.value).getTime();
+      return !isNaN(a) && !isNaN(b) && a < b;
+    }
+    return true;
   }
 
   _run(q: Query): { data: any; error: any } {
@@ -26,18 +61,21 @@ class MockDB {
 
     if (q.method === 'insert') {
       const toAdd = Array.isArray(q.rows) ? q.rows : [q.rows];
-      // imitasi auto-increment/pk; cukup push
       for (const r of toAdd) {
-        // sessions.pk = token, sheet_rows.pk = (name, ord) — tidak divalidasi ketat di mock
         (table as Row[]).push({ ...r });
       }
       return { data: toAdd, error: null };
     }
 
+    if (q.method === 'update') {
+      const matched = rows.filter((r) => q.filters.every((f) => this._matches(r, f)));
+      for (const r of matched) Object.assign(r, { ...q.rows });
+      return { data: matched, error: null };
+    }
+
     if (q.method === 'delete') {
       const before = table.length;
-      const f = q.filters[0];
-      const filtered = (table as Row[]).filter((r) => r[f?.field] !== f?.value);
+      const filtered = (table as Row[]).filter((r) => !q.filters.every((f) => this._matches(r, f)));
       this.tables[q.table] = filtered;
       return { data: before - filtered.length, error: null };
     }
@@ -46,9 +84,7 @@ class MockDB {
     if (q.orderField === 'ord') {
       rows = [...rows].sort((a, b) => (a.ord ?? 0) - (b.ord ?? 0));
     }
-    for (const f of q.filters) {
-      rows = rows.filter((r) => r[f.field] === f.value);
-    }
+    rows = rows.filter((r) => q.filters.every((f) => this._matches(r, f)));
     if (q.single) {
       return { data: rows[0] || null, error: null };
     }
@@ -61,7 +97,7 @@ class Query {
   cols = '*';
   orderField = '';
   orderAsc = true;
-  filters: Array<{ field: string; value: any }> = [];
+  filters: Array<Filter> = [];
   single = false;
   rows: Row[] = [];
 
@@ -89,12 +125,37 @@ class Query {
     return this;
   }
   eq(field: string, value: any) {
-    this.filters.push({ field, value });
+    this.filters.push({ field, op: 'eq', value });
+    return this;
+  }
+  neq(field: string, value: any) {
+    this.filters.push({ field, op: 'neq', value });
+    return this;
+  }
+  in(field: string, values: any[]) {
+    this.filters.push({ field, op: 'in', value: values });
+    return this;
+  }
+  not(field: string, comp: string, value: any) {
+    this.filters.push({ field, op: comp === 'in' ? 'not-in' : 'neq', value });
+    return this;
+  }
+  gte(field: string, value: any) {
+    this.filters.push({ field, op: 'gte', value });
+    return this;
+  }
+  lt(field: string, value: any) {
+    this.filters.push({ field, op: 'lt', value });
     return this;
   }
   insert(rows: Row | Row[]) {
     this.method = 'insert';
     this.rows = Array.isArray(rows) ? rows : [rows];
+    return this;
+  }
+  update(cols: Row) {
+    this.method = 'update';
+    this.rows = cols;
     return this;
   }
   delete() {

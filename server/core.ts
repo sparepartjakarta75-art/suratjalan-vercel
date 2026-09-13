@@ -2,28 +2,27 @@
  * ============================================================
  * CORE.TS — Logika bisnis (port dari SuratJalan.ts + References.ts)
  * ============================================================
- * Diport hampir verbatim dari versi Apps Script; operasi I/O
- * memakai virtual-sheet shim di server/sheets.ts.
+ * Revisi performa (migration 002): tabel transaksi utama
+ * (SURAT_JALAN, DETAIL_SURAT_JALAN, PENERIMAAN_SURAT_JALAN,
+ * DETAIL_PENERIMAAN_SURAT_JALAN) kini berupa tabel Postgres
+ * relasional yang diakses langsung via Supabase query + index.
+ * Data referensi kecil (USERS, ALAMAT, REF_*) tetap memakai
+ * virtual-sheet shim karena jarang berubah.
  * ============================================================
  */
 
 import {
+  getSupabase,
   getSheet_,
   sheetToObjects_,
-  cariRowIndexById_,
   Utilities,
   Session,
   Logger,
 } from './sheets';
 import {
-  SHEET_USERS,
-  SHEET_SURAT_JALAN,
-  SHEET_DETAIL,
   SHEET_JENIS_BARANG,
   SHEET_CABANG,
   SHEET_ALAMAT,
-  SHEET_PENERIMAAN_EXT,
-  SHEET_DETAIL_PENERIMAAN_EXT,
 } from './constants';
 
 const BULAN_ROMAWI = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
@@ -39,31 +38,108 @@ export function safeFormatDate(val: any, fmt: string): string {
   }
 }
 
-/* ===================== NOMOR SURAT JALAN ===================== */
-export function buatNomorSuratJalan_(cabangAsal, cabangTujuan, kodeJenis) {
-  const data = sheetToObjects_(getSheet_(SHEET_SURAT_JALAN));
+/* ============================================================
+   MAPPING KOLOM: baris DB (snake_case) <-> objek ala-sheet
+   ============================================================ */
 
+const SJ_APP_COLS: Array<[string, string]> = [
+  ['id', 'ID'],
+  ['no_surat_jalan', 'No Surat Jalan'],
+  ['tanggal', 'Tanggal'],
+  ['cabang_asal', 'Cabang Asal'],
+  ['cabang_tujuan', 'Cabang Tujuan'],
+  ['kode_jenis_barang', 'Kode Jenis Barang'],
+  ['dikirim_via', 'Dikirim Via'],
+  ['total_barang', 'Total Barang'],
+  ['status_kirim_cikupa', 'Status Kirim Cikupa'],
+  ['dibuat_oleh', 'Dibuat Oleh'],
+  ['waktu_input', 'Waktu Input'],
+  ['perlu_diteruskan', 'Perlu Diteruskan'],
+  ['tujuan_akhir', 'Tujuan Akhir'],
+  ['tanggal_kirim_lanjutan', 'Tanggal Kirim Lanjutan'],
+  ['no_truk', 'No Truk'],
+  ['sopir', 'Sopir'],
+  ['status_kirim_pusat', 'Status Kirim Pusat'],
+  ['diupdate_oleh', 'Diupdate Oleh'],
+  ['waktu_update', 'Waktu Update'],
+];
+
+/** Baris surat_jalan (DB) -> objek dengan key ala-sheet. */
+function sjDbToApp(r: any): any {
+  const o: any = {};
+  for (const [db, app] of SJ_APP_COLS) o[app] = r?.[db] ?? '';
+  return o;
+}
+
+/** Baris detail_surat_jalan (DB) -> objek konsumen/client. */
+function dsjDbToObj(r: any): any {
+  return {
+    idDetail: r?.id_detail ?? '',
+    no: r?.no ?? 0,
+    noBukti: r?.no_bukti ?? '',
+    deskripsi: r?.deskripsi ?? '',
+    qty: r?.qty ?? 0,
+    satuan: r?.satuan ?? '',
+    keterangan: r?.keterangan ?? '',
+    statusFisik: r?.status_fisik ?? 'Belum Diterima',
+    diterimaOleh: r?.diterima_oleh ?? '',
+    waktuDiterima: r?.waktu_diterima ? safeFormatDate(r.waktu_diterima, 'dd/MM/yyyy HH:mm') : '',
+  };
+}
+
+/** Baris detail_penerimaan_surat_jalan (DB) -> objek konsumen/client. */
+function dpDbToObj(r: any): any {
+  return {
+    idDetail: r?.id_detail ?? '',
+    no: r?.no ?? 0,
+    noBukti: r?.no_bukti ?? '',
+    deskripsi: r?.deskripsi ?? '',
+    qty: r?.qty ?? 0,
+    satuan: r?.satuan ?? '',
+    keterangan: r?.keterangan ?? '',
+    statusFisik: r?.status_fisik ?? 'Belum Diterima',
+    diterimaOleh: r?.diterima_oleh ?? '',
+    waktuDiterima: r?.waktu_diterima ? safeFormatDate(r.waktu_diterima, 'dd/MM/yyyy HH:mm') : '',
+    tujuanSite: r?.tujuan_site ?? '',
+    statusKirim: r?.status_kirim ?? 'Open',
+    idSJKirim: r?.id_sj_kirim ?? '',
+    noSJKirim: r?.no_sj_kirim ?? '',
+  };
+}
+
+/* ===================== NOMOR SURAT JALAN ===================== */
+export async function buatNomorSuratJalan_(cabangAsal, cabangTujuan, kodeJenis) {
   const now = new Date();
   const bulan = now.getMonth();
   const tahun = now.getFullYear();
+  const start = new Date(tahun, bulan, 1);
+  const next = new Date(tahun, bulan + 1, 1);
+
+  const { data, error } = await getSupabase()
+    .from('surat_jalan')
+    .select('id')
+    .eq('cabang_asal', cabangAsal)
+    .gte('tanggal', start.toISOString())
+    .lt('tanggal', next.toISOString());
+  if (error) throw new Error('Gagal menghitung nomor surat jalan: ' + error.message);
+
+  const jumlah = Array.isArray(data) ? data.length : 0;
   const bulanRomawi = BULAN_ROMAWI[bulan];
   const tahunSingkat = String(tahun).slice(-2);
-
-  const jumlah = data.filter(row => {
-    const tgl = new Date(row['Tanggal']);
-    return row['Cabang Asal'] === cabangAsal &&
-      tgl.getMonth() === bulan &&
-      tgl.getFullYear() === tahun;
-  }).length;
-
   const urut = String(jumlah + 1).padStart(3, '0');
   return urut + '/' + kodeJenis + '-' + cabangTujuan + '/' + cabangAsal + '/' + bulanRomawi + '/' + tahunSingkat;
 }
 
 /* ===================== HELPER INTERNAL ===================== */
-export function ambilHeaderById_(id) {
-  const data = sheetToObjects_(getSheet_(SHEET_SURAT_JALAN));
-  return data.find(r => r['ID'] === id) || null;
+export async function ambilHeaderById_(id) {
+  if (!id) return null;
+  const { data, error } = await getSupabase()
+    .from('surat_jalan')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return sjDbToApp(data);
 }
 
 export function cekIzinUbah_(header, role, cabang) {
@@ -78,116 +154,65 @@ export function cekIzinUbah_(header, role, cabang) {
   return { ok: true };
 }
 
-export function tulisDetailRow_(sheet, rowIdx, data) {
-  const headers = sheet.getDataRange().getValues()[0];
-  const colMap = {
-    'ID Detail': Utilities.getUuid(),
-    'ID Surat Jalan': data.idSuratJalan,
-    'No': data.no,
-    'No Bukti': data.noBukti || '',
-    'Deskripsi': data.deskripsi,
-    'Qty': data.qty,
-    'Satuan': data.satuan || '',
-    'Keterangan': data.keterangan || '',
-    'Status Fisik': data.statusFisik || 'Belum Diterima',
-    'Diterima Oleh': data.diterimaOleh || '',
-    'Waktu Diterima': data.waktuDiterima || ''
-  };
-  for (const [headerName, value] of Object.entries(colMap)) {
-    const colIdx = headers.indexOf(headerName);
-    if (colIdx !== -1) {
-      sheet.getRange(rowIdx, colIdx + 1).setValue(value);
-    }
-  }
+async function insertDetailRows_(idSuratJalan, items) {
+  const rows = items.map((d, idx) => ({
+    id_detail: Utilities.getUuid(),
+    id_surat_jalan: idSuratJalan,
+    no: idx + 1,
+    no_bukti: String(d.noBukti ?? ''),
+    deskripsi: String(d.deskripsi ?? ''),
+    qty: Number(d.qty) || 0,
+    satuan: String(d.satuan ?? ''),
+    keterangan: String(d.keterangan ?? ''),
+    status_fisik: 'Belum Diterima',
+    diterima_oleh: '',
+    waktu_diterima: null,
+  }));
+  const { error } = await getSupabase().from('detail_surat_jalan').insert(rows);
+  if (error) throw new Error('Gagal simpan detail surat jalan: ' + error.message);
 }
 
-export function hapusDetailByHeaderId_(idSuratJalan) {
-  const sheet = getSheet_(SHEET_DETAIL);
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const idHeaderCol = headers.indexOf('ID Surat Jalan');
-
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][idHeaderCol] === idSuratJalan) {
-      sheet.deleteRow(i + 1);
-    }
-  }
+export async function hapusDetailByHeaderId_(idSuratJalan) {
+  const { error } = await getSupabase()
+    .from('detail_surat_jalan')
+    .delete()
+    .eq('id_surat_jalan', idSuratJalan);
+  if (error) throw new Error('Gagal menghapus detail: ' + error.message);
 }
 
 /* ===================== CREATE ===================== */
-export function cariRowDetailEksternalById_(idDetail) {
-  var sheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var idCol = headers.indexOf('ID Detail');
-  if (idCol === -1) return -1;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idCol]).trim() === String(idDetail).trim()) return i + 1;
-  }
-  return -1;
+export async function tandaiEksternalPending_(idDetail, idSJKirim, noSJKirim) {
+  await getSupabase()
+    .from('detail_penerimaan_surat_jalan')
+    .update({ status_kirim: 'Pending', id_sj_kirim: String(idSJKirim), no_sj_kirim: String(noSJKirim) })
+    .eq('id_detail', idDetail);
 }
 
-export function tandaiEksternalPending_(idDetail, idSJKirim, noSJKirim) {
-  var sheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var rowIdx = cariRowDetailEksternalById_(idDetail);
-  if (rowIdx === -1) return;
-  var headers = sheet.getDataRange().getValues()[0];
-  function setCol(name, value) {
-    var col = headers.indexOf(name);
-    if (col !== -1) sheet.getRange(rowIdx, col + 1).setValue(value);
-  }
-  setCol('Status Kirim', 'Pending');
-  setCol('ID SJ Kirim', idSJKirim);
-  setCol('No SJ Kirim', noSJKirim);
+export async function kembalikanEksternalOpen_(idSJKirim) {
+  const { error } = await getSupabase()
+    .from('detail_penerimaan_surat_jalan')
+    .update({ status_kirim: 'Open', id_sj_kirim: '', no_sj_kirim: '' })
+    .eq('id_sj_kirim', idSJKirim);
+  if (error) throw new Error('Gagal mengembalikan status eksternal: ' + error.message);
 }
 
-export function kembalikanEksternalOpen_(idSJKirim) {
-  var sheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  if (headers.length === 0) return;
-  var idSJCol = headers.indexOf('ID SJ Kirim');
-  var statusCol = headers.indexOf('Status Kirim');
-  if (idSJCol === -1 || statusCol === -1) return;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idSJCol]).trim() === String(idSJKirim).trim()) {
-      sheet.getRange(i + 1, statusCol + 1).setValue('Open');
-      sheet.getRange(i + 1, idSJCol + 1).setValue('');
-    }
-  }
+export async function tutupEksternalBySJ_(idSJKirim) {
+  const { error } = await getSupabase()
+    .from('detail_penerimaan_surat_jalan')
+    .update({ status_kirim: 'Close' })
+    .eq('id_sj_kirim', idSJKirim);
+  if (error) throw new Error('Gagal menutup status eksternal: ' + error.message);
 }
 
-export function tutupEksternalBySJ_(idSJKirim) {
-  var sheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  if (headers.length === 0) return;
-  var idSJCol = headers.indexOf('ID SJ Kirim');
-  var statusCol = headers.indexOf('Status Kirim');
-  if (idSJCol === -1 || statusCol === -1) return;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idSJCol]).trim() === String(idSJKirim).trim()) {
-      sheet.getRange(i + 1, statusCol + 1).setValue('Close');
-    }
-  }
+export async function pendingkanEksternalBySJ_(idSJKirim) {
+  const { error } = await getSupabase()
+    .from('detail_penerimaan_surat_jalan')
+    .update({ status_kirim: 'Pending' })
+    .eq('id_sj_kirim', idSJKirim);
+  if (error) throw new Error('Gagal mem-pending status eksternal: ' + error.message);
 }
 
-export function pendingkanEksternalBySJ_(idSJKirim) {
-  var sheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  if (headers.length === 0) return;
-  var idSJCol = headers.indexOf('ID SJ Kirim');
-  var statusCol = headers.indexOf('Status Kirim');
-  if (idSJCol === -1 || statusCol === -1) return;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idSJCol]).trim() === String(idSJKirim).trim()) {
-      sheet.getRange(i + 1, statusCol + 1).setValue('Pending');
-    }
-  }
-}
-
-export function simpanSuratJalan(payload) {
+export async function simpanSuratJalan(payload) {
   if (!payload.cabangAsal || !payload.cabangTujuan || !payload.kodeJenis) {
     return { success: false, message: 'Cabang asal, cabang tujuan, dan kode jenis barang wajib diisi.' };
   }
@@ -207,54 +232,93 @@ export function simpanSuratJalan(payload) {
     return { success: false, message: 'Tujuan Akhir wajib diisi jika surat jalan perlu diteruskan.' };
   }
 
-  const headerSheet = getSheet_(SHEET_SURAT_JALAN);
-  const detailSheet = getSheet_(SHEET_DETAIL);
-
-  const noSuratJalan = buatNomorSuratJalan_(payload.cabangAsal, payload.cabangTujuan, payload.kodeJenis);
+  const noSuratJalan = await buatNomorSuratJalan_(payload.cabangAsal, payload.cabangTujuan, payload.kodeJenis);
   const idHeader = Utilities.getUuid();
   const now = new Date();
-
   const statusAwal = perluDiteruskan === 'Ya' ? 'Dikirim' : 'Menunggu Penerimaan';
 
-  headerSheet.appendRow([
-    idHeader, noSuratJalan, now, payload.cabangAsal, payload.cabangTujuan,
-    payload.kodeJenis, payload.dikirimVia || '', payload.details.length,
-    statusAwal, payload.username, now,
-    perluDiteruskan, tujuanAkhir,
-    '', '', '',
-    perluDiteruskan === 'Ya' ? 'Menunggu Truk' : '',
-    '', ''
-  ]);
+  const headerRow = {
+    id: idHeader,
+    no_surat_jalan: noSuratJalan,
+    tanggal: now,
+    cabang_asal: payload.cabangAsal,
+    cabang_tujuan: payload.cabangTujuan,
+    kode_jenis_barang: payload.kodeJenis,
+    dikirim_via: payload.dikirimVia || '',
+    total_barang: payload.details.length,
+    status_kirim_cikupa: statusAwal,
+    dibuat_oleh: payload.username || '',
+    waktu_input: now,
+    perlu_diteruskan: perluDiteruskan,
+    tujuan_akhir: tujuanAkhir,
+    tanggal_kirim_lanjutan: null,
+    no_truk: '',
+    sopir: '',
+    status_kirim_pusat: perluDiteruskan === 'Ya' ? 'Menunggu Truk' : '',
+    diupdate_oleh: '',
+    waktu_update: null,
+  };
 
-  payload.details.forEach(function (d, idx) {
-    tulisDetailRow_(detailSheet, detailSheet.getLastRow() + 1, {
-      idSuratJalan: idHeader,
-      no: idx + 1,
-      noBukti: d.noBukti,
-      deskripsi: d.deskripsi,
-      qty: d.qty,
-      satuan: d.satuan,
-      keterangan: d.keterangan
-    });
-  });
+  const { error: errHeader } = await getSupabase().from('surat_jalan').insert(headerRow);
+  if (errHeader) throw new Error('Gagal simpan surat jalan: ' + errHeader.message);
+
+  await insertDetailRows_(idHeader, payload.details);
 
   if (payload.externalItems && payload.externalItems.length) {
-    payload.externalItems.forEach(function (ext) {
-      if (ext.idDetail) tandaiEksternalPending_(ext.idDetail, idHeader, noSuratJalan);
-    });
+    for (const ext of payload.externalItems) {
+      if (ext.idDetail) await tandaiEksternalPending_(ext.idDetail, idHeader, noSuratJalan);
+    }
   }
 
-  return { success: true, noSuratJalan: noSuratJalan };
+  return { success: true, noSuratJalan };
 }
 
 /* ===================== READ: DAFTAR HEADER ===================== */
-export function getDaftarSuratJalan(role, cabang) {
+async function fetchDetailMap_(ids: string[]): Promise<Record<string, any[]>> {
+  const detailMap: Record<string, any[]> = {};
+  if (!ids.length) return detailMap;
+  const { data, error } = await getSupabase()
+    .from('detail_surat_jalan')
+    .select('*')
+    .in('id_surat_jalan', ids);
+  if (error) throw new Error('Gagal memuat detail: ' + error.message);
+  for (const d of data || []) {
+    const hid = String(d.id_surat_jalan || '').trim();
+    if (!hid) continue;
+    if (!detailMap[hid]) detailMap[hid] = [];
+    detailMap[hid].push({
+      idDetail: d.id_detail || '',
+      no: d.no || 0,
+      noBukti: d.no_bukti || '',
+      deskripsi: d.deskripsi || '',
+      qty: d.qty || 0,
+      satuan: d.satuan || '',
+      keterangan: d.keterangan || '',
+      statusFisik: d.status_fisik || 'Belum Diterima',
+      diterimaOleh: d.diterima_oleh || '',
+      waktuDiterima: d.waktu_diterima ? safeFormatDate(d.waktu_diterima, 'dd/MM/yyyy HH:mm') : '',
+    });
+  }
+  return detailMap;
+}
+
+function tanggalMs(val: any): number {
+  const d = new Date(String(val || ''));
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+export async function getDaftarSuratJalan(role, cabang) {
   try {
-    const data = sheetToObjects_(getSheet_(SHEET_SURAT_JALAN));
-    const validData = data.filter(row => row['ID'] && String(row['ID']).trim() !== '');
-    let hasil = validData;
+    const { data, error } = await getSupabase()
+      .from('surat_jalan')
+      .select('*')
+      .order('waktu_input', { ascending: false });
+    if (error) throw error;
+
+    let hasil = (data || []).map(sjDbToApp).filter((row) => row['ID'] && String(row['ID']).trim() !== '');
+
     if (role !== 'admin') {
-      hasil = validData.filter(row => {
+      hasil = hasil.filter((row) => {
         const cabangAsal = row['Cabang Asal'] || '';
         const cabangTujuan = row['Cabang Tujuan'] || '';
         const tujuanAkhir = row['Tujuan Akhir'] || '';
@@ -269,34 +333,12 @@ export function getDaftarSuratJalan(role, cabang) {
       });
     }
 
-    hasil.sort((a, b) => {
-      var da = new Date(String(b['Waktu Input'] || ''));
-      var db = new Date(String(a['Waktu Input'] || ''));
-      return (isNaN(da.getTime()) ? 0 : da.getTime()) - (isNaN(db.getTime()) ? 0 : db.getTime());
-    });
+    hasil.sort((a, b) => tanggalMs(b['Waktu Input']) - tanggalMs(a['Waktu Input']));
 
-    const detailData = sheetToObjects_(getSheet_(SHEET_DETAIL));
-    const jumlahPerHeader = {};
-    detailData.forEach(function (d) {
-      const key = d['ID Surat Jalan'];
-      if (key) jumlahPerHeader[key] = (jumlahPerHeader[key] || 0) + 1;
-    });
+    const ids = hasil.map((r) => r['ID']);
+    const detailMap = await fetchDetailMap_(ids);
 
-    const detailByHeader: Record<string, any[]> = {};
-    detailData.forEach(function (d) {
-      const hid = String(d['ID Surat Jalan'] || '').trim();
-      if (!hid) return;
-      if (!detailByHeader[hid]) detailByHeader[hid] = [];
-      detailByHeader[hid].push({
-        noBukti: d['No Bukti'] || '',
-        deskripsi: d['Deskripsi'] || '',
-        qty: d['Qty'] || 0,
-        satuan: d['Satuan'] || '',
-        keterangan: d['Keterangan'] || ''
-      });
-    });
-
-    return hasil.map(r => ({
+    return hasil.map((r) => ({
       id: r['ID'] || '',
       noSuratJalan: r['No Surat Jalan'] || '',
       tanggal: safeFormatDate(r['Tanggal'], 'dd/MM/yyyy'),
@@ -304,7 +346,7 @@ export function getDaftarSuratJalan(role, cabang) {
       cabangTujuan: r['Cabang Tujuan'] || '',
       kodeJenis: r['Kode Jenis Barang'] || '',
       dikirimVia: r['Dikirim Via'] || '',
-      totalBarang: jumlahPerHeader[r['ID']] || (r['Total Barang'] || 0),
+      totalBarang: (detailMap[r['ID']] || []).length || (r['Total Barang'] || 0),
       status: r['Status Kirim Cikupa'] || '',
       dibuatOleh: r['Dibuat Oleh'] || '',
       diupdateOleh: r['Diupdate Oleh'] || '',
@@ -315,7 +357,7 @@ export function getDaftarSuratJalan(role, cabang) {
       noTruk: r['No Truk'] || '',
       sopir: r['Sopir'] || '',
       statusKirimPusat: r['Status Kirim Pusat'] || '',
-      items: detailByHeader[r['ID']] || []
+      items: (detailMap[r['ID']] || []).map(({ idDetail, no, statusFisik, diterimaOleh, waktuDiterima, ...rest }) => rest),
     }));
   } catch (err: any) {
     Logger.log('ERROR getDaftarSuratJalan: ' + err.message);
@@ -324,10 +366,14 @@ export function getDaftarSuratJalan(role, cabang) {
 }
 
 /* ===================== READ: DAFTAR SJ UNTUK TUJUAN (Penerimaan) ===================== */
-export function getDaftarSuratJalanUntukTujuan(cabangTujuan) {
-  const data = sheetToObjects_(getSheet_(SHEET_SURAT_JALAN));
+export async function getDaftarSuratJalanUntukTujuan(cabangTujuan) {
+  const { data, error } = await getSupabase()
+    .from('surat_jalan')
+    .select('*')
+    .order('waktu_input', { ascending: false });
+  if (error) throw new Error('Gagal memuat daftar surat jalan: ' + error.message);
 
-  let hasil = data.filter(row => {
+  let hasil = (data || []).map(sjDbToApp).filter((row) => {
     const statusCikupa = row['Status Kirim Cikupa'] || '';
     const perluDiteruskan = row['Perlu Diteruskan'] || 'Tidak';
     const tujuanAkhir = row['Tujuan Akhir'] || '';
@@ -343,25 +389,17 @@ export function getDaftarSuratJalanUntukTujuan(cabangTujuan) {
   });
 
   hasil.sort((a, b) => {
-    const aStatus = a['Status Kirim Cikupa'] || '';
-    const bStatus = b['Status Kirim Cikupa'] || '';
-    const aSelesai = aStatus === 'Diterima Tujuan' || aStatus === 'Diterima Cikupa';
-    const bSelesai = bStatus === 'Diterima Tujuan' || bStatus === 'Diterima Cikupa';
+    const aSelesai = (a['Status Kirim Cikupa'] || '') === 'Diterima Tujuan' || (a['Status Kirim Cikupa'] || '') === 'Diterima Cikupa';
+    const bSelesai = (b['Status Kirim Cikupa'] || '') === 'Diterima Tujuan' || (b['Status Kirim Cikupa'] || '') === 'Diterima Cikupa';
     if (aSelesai && !bSelesai) return 1;
     if (!aSelesai && bSelesai) return -1;
-    var da = new Date(String(b['Waktu Input'] || ''));
-    var db = new Date(String(a['Waktu Input'] || ''));
-    return (isNaN(da.getTime()) ? 0 : da.getTime()) - (isNaN(db.getTime()) ? 0 : db.getTime());
+    return tanggalMs(b['Waktu Input']) - tanggalMs(a['Waktu Input']);
   });
 
-  const detailData = sheetToObjects_(getSheet_(SHEET_DETAIL));
-  const jumlahPerHeader = {};
-  detailData.forEach(function (d) {
-    const key = d['ID Surat Jalan'];
-    jumlahPerHeader[key] = (jumlahPerHeader[key] || 0) + 1;
-  });
+  const ids = hasil.map((r) => r['ID']);
+  const detailMap = await fetchDetailMap_(ids);
 
-  return hasil.map(r => ({
+  return hasil.map((r) => ({
     id: r['ID'],
     noSuratJalan: r['No Surat Jalan'],
     tanggal: safeFormatDate(r['Tanggal'], 'dd/MM/yyyy'),
@@ -369,7 +407,7 @@ export function getDaftarSuratJalanUntukTujuan(cabangTujuan) {
     cabangTujuan: r['Cabang Tujuan'],
     kodeJenis: r['Kode Jenis Barang'],
     dikirimVia: r['Dikirim Via'],
-    totalBarang: jumlahPerHeader[r['ID']] || (r['Total Barang'] || 0),
+    totalBarang: (detailMap[r['ID']] || []).length || (r['Total Barang'] || 0),
     status: r['Status Kirim Cikupa'],
     dibuatOleh: r['Dibuat Oleh'],
     perluDiteruskan: r['Perlu Diteruskan'],
@@ -382,24 +420,19 @@ export function getDaftarSuratJalanUntukTujuan(cabangTujuan) {
 }
 
 /* ===================== READ: DETAIL BARANG ===================== */
-export function getDetailSuratJalan(idSuratJalan) {
-  const data = sheetToObjects_(getSheet_(SHEET_DETAIL));
-  return data
-    .filter(r => r['ID Surat Jalan'] === idSuratJalan)
-    .sort((a, b) => Number(a['No']) - Number(b['No']))
-    .map(r => ({
-      idDetail: r['ID Detail'],
-      no: r['No'], noBukti: r['No Bukti'], deskripsi: r['Deskripsi'], qty: r['Qty'], satuan: r['Satuan'],
-      keterangan: r['Keterangan'],
-      statusFisik: r['Status Fisik'] || 'Belum Diterima',
-      diterimaOleh: r['Diterima Oleh'],
-      waktuDiterima: safeFormatDate(r['Waktu Diterima'], 'dd/MM/yyyy HH:mm')
-    }));
+export async function getDetailSuratJalan(idSuratJalan) {
+  const { data, error } = await getSupabase()
+    .from('detail_surat_jalan')
+    .select('*')
+    .eq('id_surat_jalan', idSuratJalan)
+    .order('no', { ascending: true });
+  if (error) throw new Error('Gagal memuat detail surat jalan: ' + error.message);
+  return (data || []).map(dsjDbToObj);
 }
 
 /* ===================== READ: DATA UNTUK FORM EDIT ===================== */
-export function getSuratJalanForEdit(id, role, cabang) {
-  const header = ambilHeaderById_(id);
+export async function getSuratJalanForEdit(id, role, cabang) {
+  const header = await ambilHeaderById_(id);
   const izin = cekIzinUbah_(header, role, cabang);
   if (!izin.ok) return { success: false, message: izin.message };
 
@@ -416,13 +449,13 @@ export function getSuratJalanForEdit(id, role, cabang) {
       perluDiteruskan: header['Perlu Diteruskan'],
       tujuanAkhir: header['Tujuan Akhir']
     },
-    details: getDetailSuratJalan(id)
+    details: await getDetailSuratJalan(id)
   };
 }
 
 /* ===================== UPDATE (EDIT oleh Cabang/Admin) ===================== */
-export function updateSuratJalan(id, payload) {
-  const header = ambilHeaderById_(id);
+export async function updateSuratJalan(id, payload) {
+  const header = await ambilHeaderById_(id);
   const izin = cekIzinUbah_(header, payload.role, payload.cabang);
   if (!izin.ok) return { success: false, message: izin.message };
 
@@ -446,100 +479,70 @@ export function updateSuratJalan(id, payload) {
     return { success: false, message: 'Tujuan Akhir wajib diisi jika surat jalan perlu diteruskan.' };
   }
 
-  const headerSheet = getSheet_(SHEET_SURAT_JALAN);
-  const rowIdx = cariRowIndexById_(headerSheet, 'ID', id);
-  if (rowIdx === -1) return { success: false, message: 'Data surat jalan tidak ditemukan.' };
+  const updateObj: any = {
+    cabang_asal: payload.cabangAsal,
+    cabang_tujuan: payload.cabangTujuan,
+    kode_jenis_barang: payload.kodeJenis,
+    dikirim_via: payload.dikirimVia || '',
+    total_barang: payload.details.length,
+    perlu_diteruskan: perluDiteruskan,
+    tujuan_akhir: tujuanAkhir,
+    diupdate_oleh: payload.username || '',
+    waktu_update: new Date(),
+  };
 
-  const hHeaders = headerSheet.getDataRange().getValues()[0];
-  function setHeaderIfExist(name, value) {
-    const col = hHeaders.indexOf(name);
-    if (col !== -1) headerSheet.getRange(rowIdx, col + 1).setValue(value);
-  }
-  setHeaderIfExist('Cabang Asal', payload.cabangAsal);
-  setHeaderIfExist('Cabang Tujuan', payload.cabangTujuan);
-  setHeaderIfExist('Kode Jenis Barang', payload.kodeJenis);
-  setHeaderIfExist('Dikirim Via', payload.dikirimVia || '');
-  setHeaderIfExist('Total Barang', payload.details.length);
-  setHeaderIfExist('Perlu Diteruskan', perluDiteruskan);
-  setHeaderIfExist('Tujuan Akhir', tujuanAkhir);
-  setHeaderIfExist('Diupdate Oleh', payload.username || '');
-  setHeaderIfExist('Waktu Update', new Date());
-  const statusPusatCol = hHeaders.indexOf('Status Kirim Pusat');
-  if (statusPusatCol !== -1) {
-    const statusPusatSaatIni = headerSheet.getDataRange().getValues()[rowIdx - 1]?.[statusPusatCol];
-    if (perluDiteruskan === 'Ya' && !statusPusatSaatIni) {
-      headerSheet.getRange(rowIdx, statusPusatCol + 1).setValue('Menunggu Truk');
-    } else if (perluDiteruskan === 'Tidak') {
-      headerSheet.getRange(rowIdx, statusPusatCol + 1).setValue('');
-    }
+  const statusPusatSaatIni = header['Status Kirim Pusat'] || '';
+  if (perluDiteruskan === 'Ya' && !statusPusatSaatIni) {
+    updateObj.status_kirim_pusat = 'Menunggu Truk';
+  } else if (perluDiteruskan === 'Tidak') {
+    updateObj.status_kirim_pusat = '';
   }
 
-  hapusDetailByHeaderId_(id);
-  const detailSheet = getSheet_(SHEET_DETAIL);
-  payload.details.forEach(function (d, idx) {
-    tulisDetailRow_(detailSheet, detailSheet.getLastRow() + 1, {
-      idSuratJalan: id,
-      no: idx + 1,
-      noBukti: d.noBukti,
-      deskripsi: d.deskripsi,
-      qty: d.qty,
-      satuan: d.satuan,
-      keterangan: d.keterangan
-    });
-  });
+  const { error: errUpdate } = await getSupabase()
+    .from('surat_jalan')
+    .update(updateObj)
+    .eq('id', id);
+  if (errUpdate) throw new Error('Gagal mengupdate surat jalan: ' + errUpdate.message);
+
+  await hapusDetailByHeaderId_(id);
+  await insertDetailRows_(id, payload.details);
 
   return { success: true };
 }
 
 /* ===================== TANDAI STATUS FISIK PER ITEM ===================== */
-export function updateStatusFisikDetail(idDetail, statusBaru, role, username) {
+export async function updateStatusFisikDetail(idDetail, statusBaru, role, username) {
   if (role !== 'admin') {
     return { success: false, message: 'Hanya Pusat (admin Cikupa/JKT) yang bisa menandai status fisik barang.' };
   }
 
-  const detailSheet = getSheet_(SHEET_DETAIL);
-  const data = detailSheet.getDataRange().getValues();
-  const headers = data[0];
-  const idCol = headers.indexOf('ID Detail');
-  const idHeaderCol = headers.indexOf('ID Surat Jalan');
-  const statusCol = headers.indexOf('Status Fisik');
-  const diterimaOlehCol = headers.indexOf('Diterima Oleh');
-  const waktuDiterimaCol = headers.indexOf('Waktu Diterima');
+  const { data: dRow, error: errGet } = await getSupabase()
+    .from('detail_surat_jalan')
+    .select('id_surat_jalan')
+    .eq('id_detail', idDetail)
+    .maybeSingle();
+  if (errGet) return { success: false, message: 'Detail tidak ditemukan.' };
+  if (!dRow) return { success: false, message: 'Baris detail tidak ditemukan.' };
 
-  const kolomHilang = [];
-  if (idCol === -1) kolomHilang.push('ID Detail');
-  if (idHeaderCol === -1) kolomHilang.push('ID Surat Jalan');
-  if (statusCol === -1) kolomHilang.push('Status Fisik');
-  if (diterimaOlehCol === -1) kolomHilang.push('Diterima Oleh');
-  if (waktuDiterimaCol === -1) kolomHilang.push('Waktu Diterima');
-  if (kolomHilang.length > 0) {
-    return { success: false, message: 'Kolom berikut belum ada di sheet DETAIL_SURAT_JALAN: ' + kolomHilang.join(', ') + '. Tambahkan kolom ini di baris header (persis sama namanya) lalu coba lagi.' };
-  }
+  const { error: errUpd } = await getSupabase()
+    .from('detail_surat_jalan')
+    .update({
+      status_fisik: statusBaru,
+      diterima_oleh: statusBaru === 'Diterima' ? username : '',
+      waktu_diterima: statusBaru === 'Diterima' ? new Date() : null,
+    })
+    .eq('id_detail', idDetail);
+  if (errUpd) return { success: false, message: 'Gagal menandai status: ' + errUpd.message };
 
-  let rowIdx = -1;
-  let idSuratJalan = null;
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idCol] === idDetail) {
-      rowIdx = i + 1;
-      idSuratJalan = data[i][idHeaderCol];
-      break;
-    }
-  }
-  if (rowIdx === -1) return { success: false, message: 'Baris detail tidak ditemukan.' };
-
-  detailSheet.getRange(rowIdx, statusCol + 1).setValue(statusBaru);
-  detailSheet.getRange(rowIdx, diterimaOlehCol + 1).setValue(statusBaru === 'Diterima' ? username : '');
-  detailSheet.getRange(rowIdx, waktuDiterimaCol + 1).setValue(statusBaru === 'Diterima' ? new Date() : '');
-
-  const statusHeaderBaru = hitungUlangStatusHeader_(idSuratJalan, username);
+  const statusHeaderBaru = await hitungUlangStatusHeader_(dRow.id_surat_jalan, username);
   return { success: true, statusHeader: statusHeaderBaru };
 }
 
-export function hitungUlangStatusHeader_(idSuratJalan, username) {
-  const details = getDetailSuratJalan(idSuratJalan);
-  const totalDiterima = details.filter(d => d.statusFisik === 'Diterima').length;
+export async function hitungUlangStatusHeader_(idSuratJalan, username) {
+  const details = await getDetailSuratJalan(idSuratJalan);
+  const totalDiterima = details.filter((d) => d.statusFisik === 'Diterima').length;
 
-  const header = ambilHeaderById_(idSuratJalan);
+  const header = await ambilHeaderById_(idSuratJalan);
   const perluDiteruskan = header ? (header['Perlu Diteruskan'] || 'Tidak') : 'Tidak';
 
   let statusBaru;
@@ -553,29 +556,27 @@ export function hitungUlangStatusHeader_(idSuratJalan, username) {
     else statusBaru = 'Diterima Sebagian';
   }
 
-  const sheet = getSheet_(SHEET_SURAT_JALAN);
-  const rowIdx = cariRowIndexById_(sheet, 'ID', idSuratJalan);
-  if (rowIdx !== -1) {
-    const headers = sheet.getDataRange().getValues()[0];
-    const col = headers.indexOf('Status Kirim Cikupa');
-    if (col !== -1) sheet.getRange(rowIdx, col + 1).setValue(statusBaru);
-    const colUpdateBy = headers.indexOf('Diupdate Oleh');
-    if (colUpdateBy !== -1) sheet.getRange(rowIdx, colUpdateBy + 1).setValue(username || '');
-    const colUpdateTime = headers.indexOf('Waktu Update');
-    if (colUpdateTime !== -1) sheet.getRange(rowIdx, colUpdateTime + 1).setValue(new Date());
-  }
+  const { error } = await getSupabase()
+    .from('surat_jalan')
+    .update({
+      status_kirim_cikupa: statusBaru,
+      diupdate_oleh: username || '',
+      waktu_update: new Date(),
+    })
+    .eq('id', idSuratJalan);
+  if (error) throw new Error('Gagal mengupdate status header: ' + error.message);
 
   if (statusBaru === 'Diterima Tujuan') {
-    tutupEksternalBySJ_(idSuratJalan);
+    await tutupEksternalBySJ_(idSuratJalan);
   } else {
-    pendingkanEksternalBySJ_(idSuratJalan);
+    await pendingkanEksternalBySJ_(idSuratJalan);
   }
 
   return statusBaru;
 }
 
 /* ===================== SIMPAN PENERIMAAN MASSAL ===================== */
-export function simpanPenerimaanBarang(idSuratJalan, items, role, username) {
+export async function simpanPenerimaanBarang(idSuratJalan, items, role, username) {
   if (role !== 'admin') {
     return { success: false, message: 'Hanya Pusat (admin Cikupa/JKT) yang bisa menyimpan penerimaan barang.' };
   }
@@ -583,88 +584,59 @@ export function simpanPenerimaanBarang(idSuratJalan, items, role, username) {
     return { success: false, message: 'Tidak ada item yang dikirim.' };
   }
 
-  const detailSheet = getSheet_(SHEET_DETAIL);
-  const data = detailSheet.getDataRange().getValues();
-  const headers = data[0];
-  const idCol = headers.indexOf('ID Detail');
-  const statusCol = headers.indexOf('Status Fisik');
-  const diterimaOlehCol = headers.indexOf('Diterima Oleh');
-  const waktuDiterimaCol = headers.indexOf('Waktu Diterima');
-
-  if (idCol === -1 || statusCol === -1 || diterimaOlehCol === -1 || waktuDiterimaCol === -1) {
-    return { success: false, message: 'Kolom STATUS FISIK / DITERIMA OLEH / WAKTU DITERIMA belum ada di sheet.' };
-  }
-
-  const rowMap = {};
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idCol]) rowMap[data[i][idCol]] = i + 1;
-  }
-
   const now = new Date();
-  items.forEach(function (item) {
-    const rowIdx = rowMap[item.idDetail];
-    if (!rowIdx) return;
-    const statusBaru = item.diterima ? 'Diterima' : 'Belum Diterima';
-    detailSheet.getRange(rowIdx, statusCol + 1).setValue(statusBaru);
-    detailSheet.getRange(rowIdx, diterimaOlehCol + 1).setValue(item.diterima ? username : '');
-    detailSheet.getRange(rowIdx, waktuDiterimaCol + 1).setValue(item.diterima ? now : '');
-  });
+  for (const item of items) {
+    const { error } = await getSupabase()
+      .from('detail_surat_jalan')
+      .update({
+        status_fisik: item.diterima ? 'Diterima' : 'Belum Diterima',
+        diterima_oleh: item.diterima ? username : '',
+        waktu_diterima: item.diterima ? now : null,
+      })
+      .eq('id_detail', item.idDetail);
+    if (error) throw new Error('Gagal update penerimaan: ' + error.message);
+  }
 
-  const statusHeaderBaru = hitungUlangStatusHeader_(idSuratJalan, username);
+  const statusHeaderBaru = await hitungUlangStatusHeader_(idSuratJalan, username);
   return { success: true, statusHeader: statusHeaderBaru };
 }
 
 /* ===================== BATAL PENERIMAAN ===================== */
-export function batalkanPenerimaan(idSuratJalan, role, username) {
+export async function batalkanPenerimaan(idSuratJalan, role, username) {
   if (role !== 'admin') {
     return { success: false, message: 'Hanya Pusat (admin Cikupa/JKT) yang bisa membatalkan status penerimaan.' };
   }
 
-  const detailSheet = getSheet_(SHEET_DETAIL);
-  const data = detailSheet.getDataRange().getValues();
-  const headers = data[0];
-  const idHeaderCol = headers.indexOf('ID Surat Jalan');
-  const statusCol = headers.indexOf('Status Fisik');
-  const diterimaOlehCol = headers.indexOf('Diterima Oleh');
-  const waktuDiterimaCol = headers.indexOf('Waktu Diterima');
+  const { data, error } = await getSupabase()
+    .from('detail_surat_jalan')
+    .select('id_detail')
+    .eq('id_surat_jalan', idSuratJalan);
+  if (error) throw new Error('Gagal memuat detail: ' + error.message);
+  if (!data || data.length === 0) return { success: false, message: 'Tidak ada detail barang ditemukan untuk surat jalan ini.' };
 
-  const kolomHilang = [];
-  if (idHeaderCol === -1) kolomHilang.push('ID Surat Jalan');
-  if (statusCol === -1) kolomHilang.push('Status Fisik');
-  if (diterimaOlehCol === -1) kolomHilang.push('Diterima Oleh');
-  if (waktuDiterimaCol === -1) kolomHilang.push('Waktu Diterima');
-  if (kolomHilang.length > 0) {
-    return { success: false, message: 'Kolom berikut belum ada di sheet DETAIL_SURAT_JALAN: ' + kolomHilang.join(', ') + '. Tambahkan kolom ini di baris header (persis sama namanya) lalu coba lagi.' };
+  for (const d of data) {
+    const { error: errU } = await getSupabase()
+      .from('detail_surat_jalan')
+      .update({ status_fisik: 'Belum Diterima', diterima_oleh: '', waktu_diterima: null })
+      .eq('id_detail', d.id_detail);
+    if (errU) throw new Error('Gagal reset detail: ' + errU.message);
   }
 
-  let jumlahDireset = 0;
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idHeaderCol] === idSuratJalan) {
-      detailSheet.getRange(i + 1, statusCol + 1).setValue('Belum Diterima');
-      detailSheet.getRange(i + 1, diterimaOlehCol + 1).setValue('');
-      detailSheet.getRange(i + 1, waktuDiterimaCol + 1).setValue('');
-      jumlahDireset++;
-    }
-  }
-
-  if (jumlahDireset === 0) return { success: false, message: 'Tidak ada detail barang ditemukan untuk surat jalan ini.' };
-
-  const statusHeaderBaru = hitungUlangStatusHeader_(idSuratJalan, username);
+  const statusHeaderBaru = await hitungUlangStatusHeader_(idSuratJalan, username);
   return { success: true, statusHeader: statusHeaderBaru };
 }
 
 /* ===================== TERIMA BARANG OLEH TUJUAN AKHIR ===================== */
-export function terimaBarangTujuan(idSuratJalan, items, role, username, cabangUser) {
+export async function terimaBarangTujuan(idSuratJalan, items, role, username, cabangUser) {
   if (role === 'admin') {
     return { success: false, message: 'Admin Pusat gunakan fitur "Penerimaan Barang" di daftar surat jalan.' };
   }
 
-  const header = ambilHeaderById_(idSuratJalan);
+  const header = await ambilHeaderById_(idSuratJalan);
   if (!header) return { success: false, message: 'Data surat jalan tidak ditemukan.' };
 
   const tujuanAkhir = header['Tujuan Akhir'] || '';
   const cabangTujuan = header['Cabang Tujuan'] || '';
-
   const tujuanYangDiharapkan = header['Perlu Diteruskan'] === 'Ya' ? tujuanAkhir : cabangTujuan;
 
   if (!tujuanYangDiharapkan || tujuanYangDiharapkan.toUpperCase() !== cabangUser.toUpperCase()) {
@@ -675,101 +647,55 @@ export function terimaBarangTujuan(idSuratJalan, items, role, username, cabangUs
     return { success: false, message: 'Tidak ada item yang dikirim.' };
   }
 
-  const detailSheet = getSheet_(SHEET_DETAIL);
-  const data = detailSheet.getDataRange().getValues();
-  const headers = data[0];
-  const idCol = headers.indexOf('ID Detail');
-  const idHeaderCol = headers.indexOf('ID Surat Jalan');
-  const statusCol = headers.indexOf('Status Fisik');
-  const diterimaOlehCol = headers.indexOf('Diterima Oleh');
-  const waktuDiterimaCol = headers.indexOf('Waktu Diterima');
-
-  const kolomHilang = [];
-  if (idCol === -1) kolomHilang.push('ID Detail');
-  if (idHeaderCol === -1) kolomHilang.push('ID Surat Jalan');
-  if (statusCol === -1) kolomHilang.push('Status Fisik');
-  if (diterimaOlehCol === -1) kolomHilang.push('Diterima Oleh');
-  if (waktuDiterimaCol === -1) kolomHilang.push('Waktu Diterima');
-  if (kolomHilang.length > 0) {
-    return { success: false, message: 'Kolom berikut belum ada di sheet DETAIL_SURAT_JALAN: ' + kolomHilang.join(', ') + '. Tambahkan kolom ini di baris header (persis sama namanya) lalu coba lagi.' };
-  }
-
-  const rowMap = {};
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idHeaderCol] === idSuratJalan && data[i][idCol]) {
-      rowMap[data[i][idCol]] = i + 1;
-    }
-  }
-
   const now = new Date();
-  items.forEach(function (item) {
-    const rowIdx = rowMap[item.idDetail];
-    if (!rowIdx) return;
-    const statusBaru = item.diterima ? 'Diterima' : 'Belum Diterima';
-    detailSheet.getRange(rowIdx, statusCol + 1).setValue(statusBaru);
-    detailSheet.getRange(rowIdx, diterimaOlehCol + 1).setValue(item.diterima ? username : '');
-    detailSheet.getRange(rowIdx, waktuDiterimaCol + 1).setValue(item.diterima ? now : '');
-  });
+  for (const item of items) {
+    const { error } = await getSupabase()
+      .from('detail_surat_jalan')
+      .update({
+        status_fisik: item.diterima ? 'Diterima' : 'Belum Diterima',
+        diterima_oleh: item.diterima ? username : '',
+        waktu_diterima: item.diterima ? now : null,
+      })
+      .eq('id_detail', item.idDetail);
+    if (error) throw new Error('Gagal update penerimaan tujuan: ' + error.message);
+  }
 
-  const statusHeaderBaru = hitungUlangStatusHeader_(idSuratJalan, username);
+  const statusHeaderBaru = await hitungUlangStatusHeader_(idSuratJalan, username);
   return { success: true, statusHeader: statusHeaderBaru };
 }
 
 /* ===================== TERIMA BARANG DARI EKSTERNAL ===================== */
-export function terimaBarangEksternal(idSuratJalan, items, username, externalSource) {
+export async function terimaBarangEksternal(idSuratJalan, items, username, externalSource) {
   if (!externalSource || !['RMS KUDUS', 'RMS SAYUNG'].includes(externalSource)) {
     return { success: false, message: 'Sumber eksternal tidak valid. Hanya RMS KUDUS dan RMS SAYUNG yang diizinkan.' };
   }
 
-  const header = ambilHeaderById_(idSuratJalan);
+  const header = await ambilHeaderById_(idSuratJalan);
   if (!header) return { success: false, message: 'Data surat jalan tidak ditemukan.' };
 
   if (!items || !items.length) {
     return { success: false, message: 'Tidak ada item yang dikirim.' };
   }
 
-  const detailSheet = getSheet_(SHEET_DETAIL);
-  const data = detailSheet.getDataRange().getValues();
-  const headers = data[0];
-  const idCol = headers.indexOf('ID Detail');
-  const idHeaderCol = headers.indexOf('ID Surat Jalan');
-  const statusCol = headers.indexOf('Status Fisik');
-  const diterimaOlehCol = headers.indexOf('Diterima Oleh');
-  const waktuDiterimaCol = headers.indexOf('Waktu Diterima');
-
-  const kolomHilang = [];
-  if (idCol === -1) kolomHilang.push('ID Detail');
-  if (idHeaderCol === -1) kolomHilang.push('ID Surat Jalan');
-  if (statusCol === -1) kolomHilang.push('Status Fisik');
-  if (diterimaOlehCol === -1) kolomHilang.push('Diterima Oleh');
-  if (waktuDiterimaCol === -1) kolomHilang.push('Waktu Diterima');
-  if (kolomHilang.length > 0) {
-    return { success: false, message: 'Kolom berikut belum ada di sheet DETAIL_SURAT_JALAN: ' + kolomHilang.join(', ') + '. Tambahkan kolom ini di baris header (persis sama namanya) lalu coba lagi.' };
-  }
-
-  const rowMap = {};
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][idHeaderCol] === idSuratJalan && data[i][idCol]) {
-      rowMap[data[i][idCol]] = i + 1;
-    }
-  }
-
   const now = new Date();
-  items.forEach(function (item) {
-    const rowIdx = rowMap[item.idDetail];
-    if (!rowIdx) return;
-    const statusBaru = item.diterima ? 'Diterima' : 'Belum Diterima';
-    detailSheet.getRange(rowIdx, statusCol + 1).setValue(statusBaru);
-    detailSheet.getRange(rowIdx, diterimaOlehCol + 1).setValue(item.diterima ? username : '');
-    detailSheet.getRange(rowIdx, waktuDiterimaCol + 1).setValue(item.diterima ? now : '');
-  });
+  for (const item of items) {
+    const { error } = await getSupabase()
+      .from('detail_surat_jalan')
+      .update({
+        status_fisik: item.diterima ? 'Diterima' : 'Belum Diterima',
+        diterima_oleh: item.diterima ? username : '',
+        waktu_diterima: item.diterima ? now : null,
+      })
+      .eq('id_detail', item.idDetail);
+    if (error) throw new Error('Gagal update penerimaan eksternal: ' + error.message);
+  }
 
-  const statusHeaderBaru = hitungUlangStatusHeader_(idSuratJalan, username);
+  const statusHeaderBaru = await hitungUlangStatusHeader_(idSuratJalan, username);
   return { success: true, statusHeader: statusHeaderBaru, source: externalSource };
 }
 
 /* ===================== BUAT PENERIMAAN EKSTERNAL (dari RMS) ===================== */
-export function simpanPenerimaanEksternal(payload) {
+export async function simpanPenerimaanEksternal(payload) {
   if (!payload.sumber || !['KUDUS', 'SAYUNG'].includes(payload.sumber)) {
     return { success: false, message: 'Sumber harus KUDUS atau SAYUNG.' };
   }
@@ -779,8 +705,8 @@ export function simpanPenerimaanEksternal(payload) {
   if (!payload.details || payload.details.length === 0) {
     return { success: false, message: 'Minimal 1 baris detail barang harus diisi.' };
   }
-  for (var i = 0; i < payload.details.length; i++) {
-    var d = payload.details[i];
+  for (let i = 0; i < payload.details.length; i++) {
+    const d = payload.details[i];
     if (!d.deskripsi || !d.qty) {
       return { success: false, message: 'Baris ke-' + (i + 1) + ': Deskripsi dan Qty wajib diisi.' };
     }
@@ -789,152 +715,148 @@ export function simpanPenerimaanEksternal(payload) {
     }
   }
 
-  var sheet = getSheet_(SHEET_PENERIMAAN_EXT);
-  var detailSheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var idGroup = Utilities.getUuid();
-  var now = new Date();
-  var tanggal = payload.tanggal ? new Date(payload.tanggal) : now;
+  const idGroup = Utilities.getUuid();
+  const now = new Date();
+  const tanggal = payload.tanggal ? new Date(payload.tanggal) : now;
 
-  var dHeaders = detailSheet.getDataRange().getValues()[0];
-  var kolomWajibDetail = ['Tujuan Site', 'Status Kirim', 'ID SJ Kirim', 'No SJ Kirim'];
-  var kolomHilangDetail = kolomWajibDetail.filter(function (kol) { return dHeaders.indexOf(kol) === -1; });
-  if (kolomHilangDetail.length > 0) {
-    return { success: false, message: 'Kolom berikut belum ada di sheet DETAIL_PENERIMAAN_SURAT_JALAN: ' + kolomHilangDetail.join(', ') + '. Tambahkan kolom ini di baris header (persis sama namanya) lalu coba lagi.' };
-  }
+  const headerRow = {
+    id: idGroup,
+    no_surat_jalan: payload.noSurat.trim(),
+    tanggal,
+    rms: payload.sumber,
+    no_truk: payload.noTruk || '',
+    kurir: payload.kurir || '',
+    no_bukti: '',
+    deskripsi: '',
+    qty: '',
+    satuan: '',
+    keterangan: '',
+    status_fisik: '',
+    diterima_oleh: payload.username || '',
+    waktu_input: now,
+  };
 
-  var hHeaders = sheet.getDataRange().getValues()[0];
-  var headerRow = sheet.getLastRow() + 1;
-  function setCol(name, value) {
-    var col = hHeaders.indexOf(name);
-    if (col !== -1) sheet.getRange(headerRow, col + 1).setValue(value);
-  }
-  setCol('ID', idGroup);
-  setCol('No Surat Jalan', payload.noSurat.trim());
-  setCol('Tanggal', tanggal);
-  setCol('Rms', payload.sumber);
-  setCol('No Truk', payload.noTruk || '');
-  setCol('Kurir', payload.kurir || '');
-  setCol('No Bukti', '');
-  setCol('Deskripsi', '');
-  setCol('Qty', '');
-  setCol('Satuan', '');
-  setCol('Keterangan', '');
-  setCol('Status Fisik', '');
-  setCol('Diterima Oleh', payload.username || '');
-  setCol('Waktu Input', now);
+  const { error: errH } = await getSupabase().from('penerimaan_surat_jalan').insert(headerRow);
+  if (errH) throw new Error('Gagal simpan penerimaan eksternal: ' + errH.message);
 
-  payload.details.forEach(function (d, idx) {
-    var dH = detailSheet.getDataRange().getValues()[0];
-    var dRow = detailSheet.getLastRow() + 1;
-    function writeDetailCol(name, value) {
-      var col = dH.indexOf(name);
-      if (col !== -1) detailSheet.getRange(dRow, col + 1).setValue(value);
-    }
+  const dRows = payload.details.map((d, idx) => ({
+    id_detail: Utilities.getUuid(),
+    id_surat_jalan: idGroup,
+    no: idx + 1,
+    no_bukti: d.noBukti || '',
+    deskripsi: d.deskripsi,
+    qty: Number(d.qty) || 0,
+    satuan: d.satuan || '',
+    keterangan: d.keterangan || '',
+    status_fisik: 'Diterima',
+    diterima_oleh: payload.username || '',
+    waktu_diterima: now,
+    tujuan_site: d.tujuanSite || '',
+    status_kirim: 'Open',
+    id_sj_kirim: '',
+    no_sj_kirim: '',
+  }));
 
-    writeDetailCol('ID Detail', Utilities.getUuid());
-    writeDetailCol('ID Surat Jalan', idGroup);
-    writeDetailCol('No', idx + 1);
-    writeDetailCol('No Bukti', d.noBukti || '');
-    writeDetailCol('Deskripsi', d.deskripsi);
-    writeDetailCol('Qty', d.qty);
-    writeDetailCol('Satuan', d.satuan || '');
-    writeDetailCol('Keterangan', d.keterangan || '');
-    writeDetailCol('Status Fisik', 'Diterima');
-    writeDetailCol('Diterima Oleh', payload.username || '');
-    writeDetailCol('Waktu Diterima', now);
-    writeDetailCol('Tujuan Site', d.tujuanSite || '');
-    writeDetailCol('Status Kirim', 'Open');
-    writeDetailCol('ID SJ Kirim', '');
-    writeDetailCol('No SJ Kirim', '');
-  });
+  const { error: errD } = await getSupabase().from('detail_penerimaan_surat_jalan').insert(dRows);
+  if (errD) throw new Error('Gagal simpan detail eksternal: ' + errD.message);
 
   return { success: true, id: idGroup };
 }
 
 /* ===================== UPDATE TAHAP 2: PENGIRIMAN LANJUTAN ===================== */
-export function updatePengirimanLanjutan(id, payload) {
+export async function updatePengirimanLanjutan(id, payload) {
   if (payload.role !== 'admin') {
     return { success: false, message: 'Hanya Pusat (admin Cikupa/JKT) yang bisa mengisi data pengiriman lanjutan.' };
   }
 
-  const header = ambilHeaderById_(id);
+  const header = await ambilHeaderById_(id);
   if (!header) return { success: false, message: 'Data surat jalan tidak ditemukan.' };
   if (header['Perlu Diteruskan'] !== 'Ya') {
     return { success: false, message: 'Surat jalan ini tidak ditandai untuk diteruskan ke tujuan akhir.' };
   }
 
-  const sheet = getSheet_(SHEET_SURAT_JALAN);
-  const rowIdx = cariRowIndexById_(sheet, 'ID', id);
-  if (rowIdx === -1) return { success: false, message: 'Data tidak ditemukan.' };
+  const updateObj: any = {
+    tanggal_kirim_lanjutan: payload.tanggalKirimLanjutan ? new Date(payload.tanggalKirimLanjutan) : null,
+    no_truk: payload.noTruk || '',
+    sopir: payload.sopir || '',
+    status_kirim_pusat: payload.statusKirimPusat || 'Menunggu Truk',
+    diupdate_oleh: payload.username || '',
+    waktu_update: new Date(),
+  };
+  if (!payload.tanggalKirimLanjutan) delete updateObj.tanggal_kirim_lanjutan;
 
-  const headers = sheet.getDataRange().getValues()[0];
-  function setIfExist(name, value) {
-    const col = headers.indexOf(name);
-    if (col !== -1) sheet.getRange(rowIdx, col + 1).setValue(value);
-  }
-  setIfExist('Tanggal Kirim Lanjutan', payload.tanggalKirimLanjutan || '');
-  setIfExist('No Truk', payload.noTruk || '');
-  setIfExist('Sopir', payload.sopir || '');
-  setIfExist('Status Kirim Pusat', payload.statusKirimPusat || 'Menunggu Truk');
-  setIfExist('Diupdate Oleh', payload.username || '');
-  setIfExist('Waktu Update', new Date());
+  const { error } = await getSupabase().from('surat_jalan').update(updateObj).eq('id', id);
+  if (error) throw new Error('Gagal update pengiriman lanjutan: ' + error.message);
 
   return { success: true };
 }
 
 /* ===================== DELETE ===================== */
-export function deleteSuratJalan(id, role, cabang) {
-  const header = ambilHeaderById_(id);
+export async function deleteSuratJalan(id, role, cabang) {
+  const header = await ambilHeaderById_(id);
   const izin = cekIzinUbah_(header, role, cabang);
   if (!izin.ok) return { success: false, message: izin.message };
 
-  kembalikanEksternalOpen_(id);
+  await kembalikanEksternalOpen_(id);
 
-  const headerSheet = getSheet_(SHEET_SURAT_JALAN);
-  const rowIdx = cariRowIndexById_(headerSheet, 'ID', id);
-  if (rowIdx === -1) return { success: false, message: 'Data tidak ditemukan.' };
+  await hapusDetailByHeaderId_(id);
 
-  hapusDetailByHeaderId_(id);
-  headerSheet.deleteRow(rowIdx);
+  const { error } = await getSupabase().from('surat_jalan').delete().eq('id', id);
+  if (error) throw new Error('Gagal menghapus surat jalan: ' + error.message);
 
   return { success: true };
 }
 
 /* ===================== PENERIMAAN EKSTERNAL ===================== */
-export function getDaftarPenerimaanEksternal() {
+export async function getDaftarPenerimaanEksternal() {
   try {
-    const headerData = sheetToObjects_(getSheet_(SHEET_PENERIMAAN_EXT));
-    const detailData = sheetToObjects_(getSheet_(SHEET_DETAIL_PENERIMAAN_EXT));
+    const [hRes, dRes] = await Promise.all([
+      getSupabase().from('penerimaan_surat_jalan').select('*'),
+      getSupabase().from('detail_penerimaan_surat_jalan').select('*'),
+    ]);
+    if (hRes.error) throw hRes.error;
+    if (dRes.error) throw dRes.error;
 
-    const detailByHeader: Record<string, any[]> = {};
-    detailData.forEach(function (d) {
-      const hid = String(d['ID Surat Jalan'] || '').trim();
-      if (!hid) return;
-      if (!detailByHeader[hid]) detailByHeader[hid] = [];
-      detailByHeader[hid].push({
-        idDetail: d['ID Detail'] || '',
-        no: d['No'] || 0,
-        noBukti: d['No Bukti'] || '',
-        deskripsi: d['Deskripsi'] || '',
-        qty: d['Qty'] || 0,
-        satuan: d['Satuan'] || '',
-        keterangan: d['Keterangan'] || '',
-        statusFisik: d['Status Fisik'] || 'Belum Diterima',
-        diterimaOleh: d['Diterima Oleh'] || '',
-        waktuDiterima: safeFormatDate(d['Waktu Diterima'], 'dd/MM/yyyy HH:mm'),
-        tujuanSite: d['Tujuan Site'] || '',
-        statusKirim: d['Status Kirim'] || 'Open',
-        idSJKirim: d['ID SJ Kirim'] || '',
-        noSJKirim: d['No SJ Kirim'] || ''
+    const headerData = (hRes.data || []).map((r) => ({
+      ID: r.id,
+      'No Surat Jalan': r.no_surat_jalan,
+      Tanggal: r.tanggal,
+      Rms: r.rms,
+      'No Truk': r.no_truk,
+      Kurir: r.kurir,
+      'Diterima Oleh': r.diterima_oleh,
+      'Waktu Input': r.waktu_input,
+    }));
+    // group detail per header (id_surat_jalan)
+    const detailByHid: Record<string, any[]> = {};
+    for (const raw of dRes.data || []) {
+      const hid = String(raw.id_surat_jalan || '').trim();
+      if (!hid) continue;
+      if (!detailByHid[hid]) detailByHid[hid] = [];
+      detailByHid[hid].push({
+        idDetail: raw.id_detail || '',
+        no: raw.no || 0,
+        noBukti: raw.no_bukti || '',
+        deskripsi: raw.deskripsi || '',
+        qty: raw.qty || 0,
+        satuan: raw.satuan || '',
+        keterangan: raw.keterangan || '',
+        statusFisik: raw.status_fisik || 'Belum Diterima',
+        diterimaOleh: raw.diterima_oleh || '',
+        waktuDiterima: raw.waktu_diterima ? safeFormatDate(raw.waktu_diterima, 'dd/MM/yyyy HH:mm') : '',
+        tujuanSite: raw.tujuan_site || '',
+        statusKirim: raw.status_kirim || 'Open',
+        idSJKirim: raw.id_sj_kirim || '',
+        noSJKirim: raw.no_sj_kirim || ''
       });
-    });
+    }
 
     const result: any[] = [];
     headerData.forEach(function (r) {
       const id = String(r['ID'] || '').trim();
       if (!id) return;
-      if (result.find(x => x.id === id)) return;
-      const items = detailByHeader[id] || [];
+      if (result.find((x) => x.id === id)) return;
+      const items = detailByHid[id] || [];
       result.push({
         id: id,
         noSuratJalan: r['No Surat Jalan'] || '',
@@ -949,9 +871,7 @@ export function getDaftarPenerimaanEksternal() {
     });
 
     result.sort(function (a, b) {
-      var da = new Date(String(b.waktuInput || ''));
-      var db = new Date(String(a.waktuInput || ''));
-      return (isNaN(da.getTime()) ? 0 : da.getTime()) - (isNaN(db.getTime()) ? 0 : db.getTime());
+      return tanggalMs(b.waktuInput) - tanggalMs(a.waktuInput);
     });
     return result;
   } catch (err: any) {
@@ -960,85 +880,58 @@ export function getDaftarPenerimaanEksternal() {
   }
 }
 
-export function hapusPenerimaanEksternal(id) {
-  var sheet = getSheet_(SHEET_PENERIMAAN_EXT);
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var idCol = headers.indexOf('ID');
-  if (idCol === -1) return { success: false, message: 'Kolom ID tidak ditemukan.' };
+export async function hapusPenerimaanEksternal(id) {
+  const { data: exists, error: errExists } = await getSupabase()
+    .from('penerimaan_surat_jalan')
+    .select('id')
+    .eq('id', id)
+    .maybeSingle();
+  if (errExists) throw new Error('Gagal memuat penerimaan eksternal: ' + errExists.message);
+  if (!exists) return { success: false, message: 'Data tidak ditemukan.' };
 
-  var rowsToDelete = [];
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][idCol]).trim() === String(id).trim()) {
-      rowsToDelete.push(i + 1);
-    }
-  }
-  rowsToDelete.reverse().forEach(function (rowIdx) {
-    sheet.deleteRow(rowIdx);
-  });
+  const { error: errD } = await getSupabase()
+    .from('detail_penerimaan_surat_jalan')
+    .delete()
+    .eq('id_surat_jalan', id);
+  if (errD) throw new Error('Gagal menghapus detail eksternal: ' + errD.message);
 
-  var dSheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var dData = dSheet.getDataRange().getValues();
-  var dHeaders = dData[0];
-  var dIdCol = dHeaders.indexOf('ID Surat Jalan');
-  if (dIdCol !== -1) {
-    var dRowsToDelete = [];
-    for (var j = 1; j < dData.length; j++) {
-      if (String(dData[j][dIdCol]).trim() === String(id).trim()) {
-        dRowsToDelete.push(j + 1);
-      }
-    }
-    dRowsToDelete.reverse().forEach(function (rowIdx) {
-      dSheet.deleteRow(rowIdx);
-    });
-  }
+  const { error: errH } = await getSupabase().from('penerimaan_surat_jalan').delete().eq('id', id);
+  if (errH) throw new Error('Gagal menghapus penerimaan eksternal: ' + errH.message);
 
   return { success: true };
 }
 
 /* ===================== DETAIL VIEW PENERIMAAN EKSTERNAL ===================== */
-export function getPenerimaanEksternalDetail(id) {
+export async function getPenerimaanEksternalDetail(id) {
   try {
-    var headerData = sheetToObjects_(getSheet_(SHEET_PENERIMAAN_EXT));
-    var headerRow = headerData.find(function (r) { return String(r['ID'] || '').trim() === String(id).trim(); });
+    const { data: headerRow, error: errH } = await getSupabase()
+      .from('penerimaan_surat_jalan')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (errH) throw errH;
     if (!headerRow) return { success: false, message: 'Data tidak ditemukan.' };
 
-    var detailData = sheetToObjects_(getSheet_(SHEET_DETAIL_PENERIMAAN_EXT));
-    var items = detailData
-      .filter(function (d) { return String(d['ID Surat Jalan'] || '').trim() === String(id).trim(); })
-      .sort(function (a, b) { return Number(a['No'] || 0) - Number(b['No'] || 0); })
-      .map(function (d) {
-        return {
-          idDetail: d['ID Detail'] || '',
-          no: d['No'] || 0,
-          noBukti: d['No Bukti'] || '',
-          deskripsi: d['Deskripsi'] || '',
-          qty: d['Qty'] || 0,
-          satuan: d['Satuan'] || '',
-          keterangan: d['Keterangan'] || '',
-          statusFisik: d['Status Fisik'] || 'Belum Diterima',
-          diterimaOleh: d['Diterima Oleh'] || '',
-          waktuDiterima: safeFormatDate(d['Waktu Diterima'], 'dd/MM/yyyy HH:mm'),
-          tujuanSite: d['Tujuan Site'] || '',
-          statusKirim: d['Status Kirim'] || 'Open',
-          idSJKirim: d['ID SJ Kirim'] || '',
-          noSJKirim: d['No SJ Kirim'] || ''
-        };
-      });
+    const { data: dData, error: errD } = await getSupabase()
+      .from('detail_penerimaan_surat_jalan')
+      .select('*')
+      .eq('id_surat_jalan', id)
+      .order('no', { ascending: true });
+    if (errD) throw errD;
 
     return {
       success: true,
       header: {
         id: id,
-        noSuratJalan: headerRow['No Surat Jalan'] || '',
-        tanggal: safeFormatDate(headerRow['Tanggal'], 'yyyy-MM-dd'),
-        rms: headerRow['Rms'] || '',
-        noTruk: headerRow['No Truk'] || '',
-        kurir: headerRow['Kurir'] || '',
-        diterimaOleh: headerRow['Diterima Oleh'] || '',
-        waktuInput: safeFormatDate(headerRow['Waktu Input'], 'dd/MM/yyyy HH:mm')
+        noSuratJalan: headerRow.no_surat_jalan || '',
+        tanggal: safeFormatDate(headerRow.tanggal, 'yyyy-MM-dd'),
+        rms: headerRow.rms || '',
+        noTruk: headerRow.no_truk || '',
+        kurir: headerRow.kurir || '',
+        diterimaOleh: headerRow.diterima_oleh || '',
+        waktuInput: safeFormatDate(headerRow.waktu_input, 'dd/MM/yyyy HH:mm')
       },
-      items: items
+      items: (dData || []).map(dpDbToObj)
     };
   } catch (err: any) {
     Logger.log('ERROR getPenerimaanEksternalDetail: ' + err.message);
@@ -1047,7 +940,7 @@ export function getPenerimaanEksternalDetail(id) {
 }
 
 /* ===================== UPDATE / EDIT PENERIMAAN EKSTERNAL ===================== */
-export function updatePenerimaanEksternal(id, payload) {
+export async function updatePenerimaanEksternal(id, payload) {
   if (!payload.noSurat || !payload.noSurat.trim()) {
     return { success: false, message: 'No Surat Jalan wajib diisi.' };
   }
@@ -1055,134 +948,117 @@ export function updatePenerimaanEksternal(id, payload) {
     return { success: false, message: 'Minimal 1 baris detail barang harus diisi.' };
   }
 
-  var hSheet = getSheet_(SHEET_PENERIMAAN_EXT);
-  var hData = hSheet.getDataRange().getValues();
-  var hHeaders = hData[0];
-  var hIdCol = hHeaders.indexOf('ID');
-  var hRowIdx = -1;
-  for (var i = 1; i < hData.length; i++) {
-    if (String(hData[i][hIdCol]).trim() === String(id).trim()) {
-      hRowIdx = i + 1;
-      break;
-    }
-  }
-  if (hRowIdx === -1) return { success: false, message: 'Data tidak ditemukan.' };
+  const { data: exists, error: errH } = await getSupabase()
+    .from('penerimaan_surat_jalan')
+    .select('id')
+    .eq('id', id)
+    .maybeSingle();
+  if (errH) throw errH;
+  if (!exists) return { success: false, message: 'Data tidak ditemukan.' };
 
-  function setHCol(name, value) {
-    var col = hHeaders.indexOf(name);
-    if (col !== -1) hSheet.getRange(hRowIdx, col + 1).setValue(value);
-  }
-  setHCol('No Surat Jalan', payload.noSurat.trim());
-  if (payload.tanggal) setHCol('Tanggal', new Date(payload.tanggal));
-  if (payload.sumber) setHCol('Rms', payload.sumber);
-  setHCol('No Truk', payload.noTruk || '');
-  setHCol('Kurir', payload.kurir || '');
+  const updateHeader: any = {
+    no_surat_jalan: payload.noSurat.trim(),
+    no_truk: payload.noTruk || '',
+    kurir: payload.kurir || '',
+  };
+  if (payload.tanggal) updateHeader.tanggal = new Date(payload.tanggal);
+  if (payload.sumber) updateHeader.rms = payload.sumber;
+  await getSupabase().from('penerimaan_surat_jalan').update(updateHeader).eq('id', id);
 
-  var dSheet = getSheet_(SHEET_DETAIL_PENERIMAAN_EXT);
-  var dData = dSheet.getDataRange().getValues();
-  var dHeaders = dData[0];
-  var dIdCol = dHeaders.indexOf('ID Surat Jalan');
+  // Tangkap status kirim lama per no bukti agar tetap dipertahankan.
+  const { data: oldDetails, error: errOld } = await getSupabase()
+    .from('detail_penerimaan_surat_jalan')
+    .select('no_bukti, status_kirim, id_sj_kirim, no_sj_kirim')
+    .eq('id_surat_jalan', id);
+  if (errOld) throw errOld;
 
-  var statusKirimLama: Record<string, { statusKirim: string; idSJKirim: string; noSJKirim: string }> = {};
-  if (dIdCol !== -1) {
-    var nbCol = dHeaders.indexOf('No Bukti');
-    var skCol = dHeaders.indexOf('Status Kirim');
-    var idSJCol = dHeaders.indexOf('ID SJ Kirim');
-    var noSJCol = dHeaders.indexOf('No SJ Kirim');
-    for (var p = 1; p < dData.length; p++) {
-      if (String(dData[p][dIdCol]).trim() === String(id).trim()) {
-        var buktiKey = nbCol !== -1 ? String(dData[p][nbCol]).trim() : '';
-        var lamaStatus = skCol !== -1 ? String(dData[p][skCol] || '') : '';
-        if (buktiKey && (lamaStatus === 'Pending' || lamaStatus === 'Close')) {
-          statusKirimLama[buktiKey] = {
-            statusKirim: lamaStatus,
-            idSJKirim: idSJCol !== -1 ? String(dData[p][idSJCol] || '') : '',
-            noSJKirim: noSJCol !== -1 ? String(dData[p][noSJCol] || '') : ''
-          };
-        }
-      }
+  const statusKirimLama: Record<string, { statusKirim: string; idSJKirim: string; noSJKirim: string }> = {};
+  for (const d of oldDetails || []) {
+    const buktiKey = String(d.no_bukti || '').trim();
+    if (buktiKey && (d.status_kirim === 'Pending' || d.status_kirim === 'Close')) {
+      statusKirimLama[buktiKey] = {
+        statusKirim: d.status_kirim,
+        idSJKirim: d.id_sj_kirim || '',
+        noSJKirim: d.no_sj_kirim || '',
+      };
     }
   }
 
-  var dRowsToDelete = [];
-  for (var j = 1; j < dData.length; j++) {
-    if (String(dData[j][dIdCol]).trim() === String(id).trim()) {
-      dRowsToDelete.push(j + 1);
-    }
-  }
-  dRowsToDelete.reverse().forEach(function (rowIdx) {
-    dSheet.deleteRow(rowIdx);
+  await getSupabase().from('detail_penerimaan_surat_jalan').delete().eq('id_surat_jalan', id);
+
+  const now = new Date();
+  const dRows = payload.details.map((d, idx) => {
+    const kirimPertahankan = statusKirimLama[String(d.noBukti || '').trim()];
+    return {
+      id_detail: Utilities.getUuid(),
+      id_surat_jalan: id,
+      no: idx + 1,
+      no_bukti: d.noBukti || '',
+      deskripsi: d.deskripsi || '',
+      qty: Number(d.qty) || 0,
+      satuan: d.satuan || '',
+      keterangan: d.keterangan || '',
+      status_fisik: d.statusFisik || 'Diterima',
+      diterima_oleh: d.diterimaOleh || payload.username || '',
+      waktu_diterima: d.waktuDiterima ? new Date(d.waktuDiterima) : now,
+      tujuan_site: d.tujuanSite || '',
+      status_kirim: kirimPertahankan ? kirimPertahankan.statusKirim : (d.statusKirim || 'Open'),
+      id_sj_kirim: kirimPertahankan ? kirimPertahankan.idSJKirim : (d.idSJKirim || ''),
+      no_sj_kirim: kirimPertahankan ? kirimPertahankan.noSJKirim : (d.noSJKirim || ''),
+    };
   });
 
-  var now = new Date();
-  payload.details.forEach(function (d, idx) {
-    var ddHeaders = dSheet.getDataRange().getValues()[0];
-    var dRow = dSheet.getLastRow() + 1;
-    function writeDetailCol(name, value) {
-      var col = ddHeaders.indexOf(name);
-      if (col !== -1) dSheet.getRange(dRow, col + 1).setValue(value);
-    }
-    var kirimPertahankan = statusKirimLama[String(d.noBukti || '').trim()];
-    writeDetailCol('ID Detail', Utilities.getUuid());
-    writeDetailCol('ID Surat Jalan', id);
-    writeDetailCol('No', idx + 1);
-    writeDetailCol('No Bukti', d.noBukti || '');
-    writeDetailCol('Deskripsi', d.deskripsi);
-    writeDetailCol('Qty', d.qty);
-    writeDetailCol('Satuan', d.satuan || '');
-    writeDetailCol('Keterangan', d.keterangan || '');
-    writeDetailCol('Status Fisik', d.statusFisik || 'Diterima');
-    writeDetailCol('Diterima Oleh', d.diterimaOleh || payload.username || '');
-    writeDetailCol('Waktu Diterima', d.waktuDiterima || now);
-    writeDetailCol('Tujuan Site', d.tujuanSite || '');
-    if (kirimPertahankan) {
-      writeDetailCol('Status Kirim', kirimPertahankan.statusKirim);
-      writeDetailCol('ID SJ Kirim', kirimPertahankan.idSJKirim);
-      writeDetailCol('No SJ Kirim', kirimPertahankan.noSJKirim);
-    } else {
-      writeDetailCol('Status Kirim', d.statusKirim || 'Open');
-      writeDetailCol('ID SJ Kirim', d.idSJKirim || '');
-      writeDetailCol('No SJ Kirim', d.noSJKirim || '');
-    }
-  });
+  const { error: errIns } = await getSupabase().from('detail_penerimaan_surat_jalan').insert(dRows);
+  if (errIns) throw new Error('Gagal simpan detail eksternal: ' + errIns.message);
 
   return { success: true };
 }
 
 /* ===================== KIRIMAN PENDING & OPEN PENERIMAAN EKSTERNAL ===================== */
-export function getDaftarKirimanPending(role, cabang) {
+export async function getDaftarKirimanPending(role, cabang) {
   try {
-    var detailData = sheetToObjects_(getSheet_(SHEET_DETAIL_PENERIMAAN_EXT));
-    var headerData = sheetToObjects_(getSheet_(SHEET_PENERIMAAN_EXT));
+    const [dRes, hRes] = await Promise.all([
+      getSupabase().from('detail_penerimaan_surat_jalan').select('*'),
+      getSupabase().from('penerimaan_surat_jalan').select('*'),
+    ]);
+    if (dRes.error) throw dRes.error;
+    if (hRes.error) throw hRes.error;
 
-    var result = [];
-    detailData.forEach(function (d) {
-      var statusKirim = d['Status Kirim'] || 'Open';
+    const details = (dRes.data || []).map(dpDbToObj);
+    const headerMap = new Map(
+      (hRes.data || []).map((r) => [String(r.id || '').trim(),
+        { sumber: r.rms || '', noSuratPenerimaan: r.no_surat_jalan || '', tanggal: r.tanggal }]),
+    );
+    const headerIdByDetail = new Map(
+      (dRes.data || []).map((r) => [String(r.id_detail || '').trim(), String(r.id_surat_jalan || '').trim()]),
+    );
+
+    const result: any[] = [];
+    details.forEach(function (d) {
+      var statusKirim = d.statusKirim || 'Open';
       if (statusKirim === 'Close') return;
 
-      var tujuan = d['Tujuan Site'] || '';
+      var tujuan = d.tujuanSite || '';
       var cabangFilter = cabang ? String(cabang).toUpperCase() : '';
       if (role !== 'admin' && cabangFilter && tujuan.toUpperCase() !== cabangFilter) return;
 
-      var headerId = String(d['ID Surat Jalan'] || '').trim();
-      var headerInfo = headerData.find(function (h) {
-        return String(h['ID'] || '').trim() === headerId;
-      });
+      const headerId = headerIdByDetail.get(String(d.idDetail || '').trim()) || '';
+      const headerInfo = headerMap.get(headerId);
 
       result.push({
-        idDetail: d['ID Detail'] || '',
-        noBukti: d['No Bukti'] || '',
-        deskripsi: d['Deskripsi'] || '',
-        qty: d['Qty'] || 0,
-        satuan: d['Satuan'] || '',
-        keterangan: d['Keterangan'] || '',
+        idDetail: d.idDetail || '',
+        noBukti: d.noBukti || '',
+        deskripsi: d.deskripsi || '',
+        qty: d.qty || 0,
+        satuan: d.satuan || '',
+        keterangan: d.keterangan || '',
         tujuanSite: tujuan,
         statusKirim: statusKirim,
-        noSJKirim: d['No SJ Kirim'] || '',
-        idSJKirim: d['ID SJ Kirim'] || '',
-        sumber: headerInfo ? (headerInfo['Rms'] || '') : '',
-        noSuratPenerimaan: headerInfo ? (headerInfo['No Surat Jalan'] || '') : '',
-        tanggalPenerimaan: headerInfo ? safeFormatDate(headerInfo['Tanggal'], 'dd/MM/yyyy') : ''
+        noSJKirim: d.noSJKirim || '',
+        idSJKirim: d.idSJKirim || '',
+        sumber: headerInfo ? (headerInfo.sumber || '') : '',
+        noSuratPenerimaan: headerInfo ? (headerInfo.noSuratPenerimaan || '') : '',
+        tanggalPenerimaan: headerInfo ? safeFormatDate(headerInfo.tanggal, 'dd/MM/yyyy') : ''
       });
     });
 
@@ -1197,35 +1073,38 @@ export function getDaftarKirimanPending(role, cabang) {
   }
 }
 
-export function getOpenPenerimaanEksternalUntukTujuan(tujuanSite) {
+export async function getOpenPenerimaanEksternalUntukTujuan(tujuanSite) {
   try {
-    var detailData = sheetToObjects_(getSheet_(SHEET_DETAIL_PENERIMAAN_EXT));
-    var headerData = sheetToObjects_(getSheet_(SHEET_PENERIMAAN_EXT));
+    const [dRes, hRes] = await Promise.all([
+      getSupabase().from('detail_penerimaan_surat_jalan').select('*').eq('status_kirim', 'Open'),
+      getSupabase().from('penerimaan_surat_jalan').select('*'),
+    ]);
+    if (dRes.error) throw dRes.error;
+    if (hRes.error) throw hRes.error;
 
-    var tujuanFilter = String(tujuanSite || '').toUpperCase();
-    var result = [];
-    detailData.forEach(function (d) {
-      if ((d['Status Kirim'] || 'Open') !== 'Open') return;
-      var tujuan = (d['Tujuan Site'] || '').toUpperCase();
-      if (tujuanFilter && tujuan !== tujuanFilter) return;
+    const tujuanFilter = String(tujuanSite || '').toUpperCase();
+    const headerMap = new Map((hRes.data || []).map((r) => [String(r.id || '').trim(), r]));
 
-      var headerId = String(d['ID Surat Jalan'] || '').trim();
-      var headerInfo = headerData.find(function (h) {
-        return String(h['ID'] || '').trim() === headerId;
-      });
+    const result: any[] = [];
+    for (const raw of dRes.data || []) {
+      const tujuan = (raw.tujuan_site || '').toUpperCase();
+      if (tujuanFilter && tujuan !== tujuanFilter) continue;
+
+      const headerId = String(raw.id_surat_jalan || '').trim();
+      const headerInfo = headerMap.get(headerId);
 
       result.push({
-        idDetail: d['ID Detail'] || '',
-        noBukti: d['No Bukti'] || '',
-        deskripsi: d['Deskripsi'] || '',
-        qty: d['Qty'] || 0,
-        satuan: d['Satuan'] || '',
-        keterangan: d['Keterangan'] || '',
-        tujuanSite: d['Tujuan Site'] || '',
-        sumber: headerInfo ? (headerInfo['Rms'] || '') : '',
-        noSuratPenerimaan: headerInfo ? (headerInfo['No Surat Jalan'] || '') : ''
+        idDetail: raw.id_detail || '',
+        noBukti: raw.no_bukti || '',
+        deskripsi: raw.deskripsi || '',
+        qty: raw.qty || 0,
+        satuan: raw.satuan || '',
+        keterangan: raw.keterangan || '',
+        tujuanSite: raw.tujuan_site || '',
+        sumber: headerInfo ? (headerInfo.rms || '') : '',
+        noSuratPenerimaan: headerInfo ? (headerInfo.no_surat_jalan || '') : ''
       });
-    });
+    }
     return result;
   } catch (err: any) {
     Logger.log('ERROR getOpenPenerimaanEksternalUntukTujuan: ' + err.message);
@@ -1252,8 +1131,8 @@ export function getAlamatList() {
   if (siteCol === -1) return [];
 
   return data.slice(1)
-    .filter(r => r[siteCol])
-    .map(r => ({ site: r[siteCol], wilayah: wilayahCol !== -1 ? r[wilayahCol] : '' }));
+    .filter((r) => r[siteCol])
+    .map((r) => ({ site: r[siteCol], wilayah: wilayahCol !== -1 ? r[wilayahCol] : '' }));
 }
 
 export function getAlamatFullList() {
@@ -1330,4 +1209,3 @@ export function hapusAlamat(site: string) {
   }
   return { success: false, message: 'Alamat tidak ditemukan.' };
 }
-

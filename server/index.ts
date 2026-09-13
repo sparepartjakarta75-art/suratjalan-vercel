@@ -173,9 +173,9 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
       result = gantiPassword(safeArgs[0]);
       break;
 
-    case 'getDaftarSuratJalan': result = core.getDaftarSuratJalan(safeArgs[0], safeArgs[1]); break;
-    case 'getDetailSuratJalan': result = core.getDetailSuratJalan(safeArgs[0]); break;
-    case 'getSuratJalanForEdit': result = core.getSuratJalanForEdit(safeArgs[0], safeArgs[1], safeArgs[2]); break;
+    case 'getDaftarSuratJalan': result = await core.getDaftarSuratJalan(safeArgs[0], safeArgs[1]); break;
+    case 'getDetailSuratJalan': result = await core.getDetailSuratJalan(safeArgs[0]); break;
+    case 'getSuratJalanForEdit': result = await core.getSuratJalanForEdit(safeArgs[0], safeArgs[1], safeArgs[2]); break;
     case 'getCabangList': result = core.getCabangList(); break;
     case 'getJenisBarangList': result = core.getJenisBarangList(); break;
     case 'getAlamatList': result = core.getAlamatList(); break;
@@ -183,27 +183,27 @@ export async function handleRpc(fn: string, args: any[], token: string): Promise
     case 'simpanAlamat': result = core.simpanAlamat(safeArgs[0]); break;
     case 'hapusAlamat': result = core.hapusAlamat(safeArgs[0]); break;
 
-    case 'simpanSuratJalan': result = core.simpanSuratJalan(safeArgs[0]); break;
-    case 'updateSuratJalan': result = core.updateSuratJalan(safeArgs[0], safeArgs[1]); break;
-    case 'deleteSuratJalan': result = core.deleteSuratJalan(safeArgs[0], safeArgs[1], safeArgs[2]); break;
-    case 'updateStatusFisikDetail': result = core.updateStatusFisikDetail(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3]); break;
+    case 'simpanSuratJalan': result = await core.simpanSuratJalan(safeArgs[0]); break;
+    case 'updateSuratJalan': result = await core.updateSuratJalan(safeArgs[0], safeArgs[1]); break;
+    case 'deleteSuratJalan': result = await core.deleteSuratJalan(safeArgs[0], safeArgs[1], safeArgs[2]); break;
+    case 'updateStatusFisikDetail': result = await core.updateStatusFisikDetail(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3]); break;
     case 'batalTerima':
-    case 'batalkanPenerimaan': result = core.batalkanPenerimaan(safeArgs[0], safeArgs[1], safeArgs[2]); break;
-    case 'updatePengirimanLanjutan': result = core.updatePengirimanLanjutan(safeArgs[0], safeArgs[1]); break;
+    case 'batalkanPenerimaan': result = await core.batalkanPenerimaan(safeArgs[0], safeArgs[1], safeArgs[2]); break;
+    case 'updatePengirimanLanjutan': result = await core.updatePengirimanLanjutan(safeArgs[0], safeArgs[1]); break;
     case 'bukaModalLanjutan': result = { success: true }; break;
 
-    case 'simpanPenerimaanBarang': result = core.simpanPenerimaanBarang(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3]); break;
-    case 'getDaftarSuratJalanUntukTujuan': result = core.getDaftarSuratJalanUntukTujuan(safeArgs[0]); break;
-    case 'terimaBarangTujuan': result = core.terimaBarangTujuan(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3], safeArgs[4]); break;
-    case 'terimaBarangEksternal': result = core.terimaBarangEksternal(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3]); break;
+    case 'simpanPenerimaanBarang': result = await core.simpanPenerimaanBarang(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3]); break;
+    case 'getDaftarSuratJalanUntukTujuan': result = await core.getDaftarSuratJalanUntukTujuan(safeArgs[0]); break;
+    case 'terimaBarangTujuan': result = await core.terimaBarangTujuan(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3], safeArgs[4]); break;
+    case 'terimaBarangEksternal': result = await core.terimaBarangEksternal(safeArgs[0], safeArgs[1], safeArgs[2], safeArgs[3]); break;
 
-    case 'simpanPenerimaanEksternal': result = core.simpanPenerimaanEksternal(safeArgs[0]); break;
-    case 'getDaftarPenerimaanEksternal': result = core.getDaftarPenerimaanEksternal(); break;
-    case 'hapusPenerimaanEksternal': result = core.hapusPenerimaanEksternal(safeArgs[0]); break;
-    case 'getPenerimaanEksternalDetail': result = core.getPenerimaanEksternalDetail(safeArgs[0]); break;
-    case 'updatePenerimaanEksternal': result = core.updatePenerimaanEksternal(safeArgs[0], safeArgs[1]); break;
-    case 'getDaftarKirimanPending': result = core.getDaftarKirimanPending(safeArgs[0], safeArgs[1]); break;
-    case 'getOpenPenerimaanEksternalUntukTujuan': result = core.getOpenPenerimaanEksternalUntukTujuan(safeArgs[0]); break;
+    case 'simpanPenerimaanEksternal': result = await core.simpanPenerimaanEksternal(safeArgs[0]); break;
+    case 'getDaftarPenerimaanEksternal': result = await core.getDaftarPenerimaanEksternal(); break;
+    case 'hapusPenerimaanEksternal': result = await core.hapusPenerimaanEksternal(safeArgs[0]); break;
+    case 'getPenerimaanEksternalDetail': result = await core.getPenerimaanEksternalDetail(safeArgs[0]); break;
+    case 'updatePenerimaanEksternal': result = await core.updatePenerimaanEksternal(safeArgs[0], safeArgs[1]); break;
+    case 'getDaftarKirimanPending': result = await core.getDaftarKirimanPending(safeArgs[0], safeArgs[1]); break;
+    case 'getOpenPenerimaanEksternalUntukTujuan': result = await core.getOpenPenerimaanEksternalUntukTujuan(safeArgs[0]); break;
 
     case 'buatPdfSuratJalan': result = await buatPdfSuratJalan(safeArgs[0], safeArgs[1] || user.nama); break;
     case 'cetakPenerimaanEksternal': result = await buatPdfPenerimaanEksternal(safeArgs[0]); break;
