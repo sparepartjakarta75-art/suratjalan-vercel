@@ -10,8 +10,8 @@
  * ============================================================
  */
 
-import { getSupabase, safeSha256 } from './sheets';
-import { SESSION_TTL_MS } from './constants';
+import { getSupabase, safeSha256 } from './sheets.js';
+import { SESSION_TTL_MS } from './constants.js';
 import { randomBytes } from 'node:crypto';
 
 export interface UserInfo {

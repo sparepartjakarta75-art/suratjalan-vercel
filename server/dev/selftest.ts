@@ -6,8 +6,8 @@
  *
  * Jalankan: npx tsx server/dev/selftest.ts
  */
-import { setSupabaseClientForTests } from '../sheets';
-import { handleRpc, RpcError } from '../index';
+import { setSupabaseClientForTests } from '../sheets.js';
+import { handleRpc, RpcError } from '../index.js';
 
 /* ================= MOCK PostgREST ================= */
 

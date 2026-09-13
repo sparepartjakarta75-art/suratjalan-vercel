@@ -16,7 +16,7 @@ import {
   Utilities,
   Session,
   Logger,
-} from './sheets';
+} from './sheets.js';
 
 const BULAN_ROMAWI = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 

@@ -16,9 +16,9 @@ import {
   gantiPassword,
   destroySession,
   UserInfo,
-} from './auth';
-import { buatPdfSuratJalan, buatPdfPenerimaanEksternal } from './pdf';
-import * as core from './core';
+} from './auth.js';
+import { buatPdfSuratJalan, buatPdfPenerimaanEksternal } from './pdf.js';
+import * as core from './core.js';
 
 export class RpcError extends Error {}
 

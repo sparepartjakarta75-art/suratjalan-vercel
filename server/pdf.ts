@@ -15,9 +15,9 @@ import {
   safeFormatDate,
   getCabangList,
   getAlamatRef,
-} from './core';
-import { Utilities, Session } from './sheets';
-import { getPenerimaanEksternalDetail } from './core';
+} from './core.js';
+import { Utilities, Session } from './sheets.js';
+import { getPenerimaanEksternalDetail } from './core.js';
 
 const PAGE_W = 595.28; // A4 portrait points
 const PAGE_H = 841.89;
