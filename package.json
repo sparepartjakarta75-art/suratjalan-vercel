@@ -9,8 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "npx tsc --noEmit -p tsconfig.json",
-    "typecheck": "npx tsc --noEmit -p tsconfig.json",
-    "seed": "node --experimental-strip-types server/dev/seed.ts"
+    "typecheck": "npx tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@types/pdfkit": "^0.13.9",
