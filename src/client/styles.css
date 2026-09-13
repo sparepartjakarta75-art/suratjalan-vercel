@@ -1,0 +1,350 @@
+/* src/input.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+::-webkit-scrollbar {
+  width: 4px;
+  cursor: pointer;
+}
+::-webkit-scrollbar-track {
+  background-color: rgba(229, 231, 235, var(--bg-opacity));
+  cursor: pointer;
+}
+::-webkit-scrollbar-thumb {
+  cursor: pointer;
+  background-color: #a0aec0;
+}
+
+[x-cloak] {
+  display: none;
+}
+
+/* ─── SIDEBAR TOGGLE ─── */
+#appSidebar {
+  transition: width 0.3s ease, min-width 0.3s ease, padding 0.3s ease, opacity 0.25s ease;
+  overflow: hidden;
+  white-space: nowrap;
+}
+#appSidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+#appSidebar.collapsed .sidebar-label,
+#appSidebar.collapsed #navMenuList span:last-child,
+#appSidebar.collapsed #navMenuAlamat span:last-child,
+#appSidebar.collapsed .sidebar-info {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+#appSidebar:not(.collapsed) .sidebar-label,
+#appSidebar:not(.collapsed) #navMenuList span:last-child,
+#appSidebar:not(.collapsed) #navMenuAlamat span:last-child,
+#appSidebar:not(.collapsed) .sidebar-info {
+  opacity: 1;
+  transition: opacity 0.3s ease 0.1s;
+}
+#appSidebar.collapsed .sidebar-info {
+  display: none;
+}
+
+/* ─── FORM INPUTS ─── */
+.sj-input {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #1e293b;
+  background-color: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 0.625rem;
+  transition: all 0.2s ease;
+  outline: none;
+}
+.sj-input::placeholder {
+  color: #94a3b8;
+}
+.sj-input:hover {
+  border-color: #cbd5e1;
+  background-color: #fafbfd;
+}
+.sj-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  background-color: #ffffff;
+}
+
+/* ─── DATE INPUT ─── */
+input[type="date"].sj-input {
+  cursor: pointer;
+  color-scheme: light;
+}
+input[type="date"].sj-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.5;
+  font-size: 1.1rem;
+}
+input[type="date"].sj-input::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* ─── SELECT INPUT ─── */
+.sj-select {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #1e293b;
+  background-color: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 0.625rem;
+  transition: all 0.2s ease;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 1rem;
+  padding-right: 2.25rem;
+  cursor: pointer;
+}
+.sj-select:hover {
+  border-color: #cbd5e1;
+  background-color: #fafbfd;
+}
+.sj-select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+/* Readonly / disabled inputs */
+.sj-input-readonly,
+.sj-input[readonly] {
+  background-color: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+  cursor: default;
+  font-style: italic;
+}
+.sj-input[readonly]:hover {
+  background-color: #f1f5f9;
+}
+
+/* Small input variant for table rows */
+.sj-input-sm {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  border-radius: 0.375rem;
+}
+
+/* Login page input variant */
+.sj-input-lg {
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  border-radius: 0.75rem;
+  border-width: 1.5px;
+  border-color: #cbd5e1;
+  background-color: #f8fafc;
+}
+.sj-input-lg::placeholder {
+  color: #94a3b8;
+}
+.sj-input-lg:hover {
+  border-color: #94a3b8;
+  background-color: #ffffff;
+}
+.sj-input-lg:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  background-color: #ffffff;
+}
+
+/* ─── ACTION BUTTONS ─── */
+.sj-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+.sj-btn-icon:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+.sj-btn-icon:active {
+  transform: translateY(0);
+}
+
+.sj-btn-view {
+  color: #3b82f6;
+  background-color: #eff6ff;
+}
+.sj-btn-view:hover {
+  color: #ffffff;
+  background-color: #3b82f6;
+}
+
+.sj-btn-edit {
+  color: #f59e0b;
+  background-color: #fffbeb;
+}
+.sj-btn-edit:hover {
+  color: #ffffff;
+  background-color: #f59e0b;
+}
+
+.sj-btn-delete {
+  color: #ef4444;
+  background-color: #fef2f2;
+}
+.sj-btn-delete:hover {
+  color: #ffffff;
+  background-color: #ef4444;
+}
+
+.sj-btn-revert {
+  color: #8b5cf6;
+  background-color: #f5f3ff;
+}
+.sj-btn-revert:hover {
+  color: #ffffff;
+  background-color: #8b5cf6;
+}
+
+.sj-btn-truck {
+  color: #0d9488;
+  background-color: #f0fdfa;
+}
+.sj-btn-truck:hover {
+  color: #ffffff;
+  background-color: #0d9488;
+}
+
+.sj-btn-confirm {
+  color: #16a34a;
+  background-color: #f0fdf4;
+}
+.sj-btn-confirm:hover {
+  color: #ffffff;
+  background-color: #16a34a;
+}
+
+.sj-btn-cancel {
+  color: #64748b;
+  background-color: #f1f5f9;
+}
+.sj-btn-cancel:hover {
+  color: #ffffff;
+  background-color: #64748b;
+}
+
+.sj-btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.625rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+}
+.sj-btn-back i {
+  font-size: 0.9rem;
+}
+.sj-btn-back:hover {
+  color: #ffffff;
+  background-color: #475569;
+  border-color: #475569;
+}
+
+/* ─── DASHBOARD QUICK NAV CARDS ─── */
+.dash-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.9rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  text-align: left;
+  outline: none;
+}
+.dash-card:hover {
+  transform: translateY(-2px);
+  border-color: #3b82f6;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.12);
+}
+.dash-card:active {
+  transform: translateY(0);
+}
+
+.sj-btn-pdf {
+  color: #dc2626;
+  background-color: #fef2f2;
+}
+.sj-btn-pdf:hover {
+  color: #ffffff;
+  background-color: #dc2626;
+}
+
+/* ─── PRIMARY ACTION BUTTON ─── */
+.sj-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  border-radius: 0.75rem;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  white-space: nowrap;
+}
+.sj-btn-primary i {
+  font-size: 1rem;
+}
+.sj-btn-primary:hover {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
+}
+.sj-btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #b0bdd0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #8899ae; }
