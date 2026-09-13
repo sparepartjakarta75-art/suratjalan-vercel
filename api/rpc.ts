@@ -2,15 +2,15 @@
  * Vercel Serverless Function — endpoint RPC tunggal.
  * Semua panggilan client dipetakan ke POST /api/rpc.
  *
- * Impor statis WAJIB (import dinamis tidak di-bundle oleh Vercel —
- * terbukti error "Cannot find module /var/task/server/sheets").
- * Handler tetap anti-crash: semua jalur (termasuk inisialisasi
- * Supabase & serialisasi respons) membalas JSON, sehingga client
- * tidak pernah menerima teks platform "A server error…".
+ * Function TIDAK mengimpor modul server di top-level: semua dimuat
+ * lazily via `require` (di-bundle oleh tracer Vercel, tidak seperti
+ * `import()` dinamis). Modul berat (server/index -> pdfkit) hanya
+ * dimuat untuk request POST. Tiap kegagalan (termasuk load modul)
+ * dibalas JSON berisi pesan asli.
  */
-import { initSupabase } from '../server/sheets';
-import { handleRpc, RpcError } from '../server/index';
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
 type VercelReq = any;
 type VercelRes = any;
 
@@ -41,8 +41,12 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
       return;
     }
 
+    // getSupabase/initSupabase — muat ringan, tidak narik pdfkit.
+    const sheets = require('../server/sheets') as {
+      initSupabase: (u: string, k: string) => void;
+    };
     try {
-      initSupabase(url, key);
+      sheets.initSupabase(url, key);
     } catch (e: any) {
       safeJson(res, 500, { error: 'Gagal inisialisasi Supabase: ' + (e?.message || e) });
       return;
@@ -73,7 +77,11 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
     const authHeader: string = req.headers?.authorization || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
-    const result = await handleRpc(fn, args, token);
+    // Muat dispatcher penuh (menarik pdfkit) hanya untuk POST.
+    const server = require('../server/index') as {
+      handleRpc: (...a: any[]) => Promise<any>;
+    };
+    const result = await server.handleRpc(fn, args, token);
     safeJson(res, 200, { result });
   } catch (err: any) {
     const msg = err?.message || String(err) || 'Terjadi kesalahan.';
