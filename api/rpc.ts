@@ -2,12 +2,15 @@
  * Vercel Serverless Function — endpoint RPC tunggal.
  * Semua panggilan client dipetakan ke POST /api/rpc.
  *
- * Handler dibuat anti-crash total: seluruh kode (termasuk load modul
- * server via import dinamis, inisialisasi Supabase, dan serialisasi
- * respons) berada di dalam try/catch, sehingga setiap kegagalan
- * membalas JSON berisi pesan asli — client tidak akan pernah lagi
- * menerima teks platform "A server error…".
+ * Impor statis WAJIB (import dinamis tidak di-bundle oleh Vercel —
+ * terbukti error "Cannot find module /var/task/server/sheets").
+ * Handler tetap anti-crash: semua jalur (termasuk inisialisasi
+ * Supabase & serialisasi respons) membalas JSON, sehingga client
+ * tidak pernah menerima teks platform "A server error…".
  */
+import { initSupabase } from '../server/sheets';
+import { handleRpc, RpcError } from '../server/index';
+
 type VercelReq = any;
 type VercelRes = any;
 
@@ -37,12 +40,6 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
       safeJson(res, 500, { error: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diatur di environment Vercel.' });
       return;
     }
-
-    // Import dinamis sehingga kegagalan load modul (mis. pdfkit)
-    // tertangkap dan dibalas JSON, tidak mematikan invocation.
-    const { initSupabase } = await import('../server/sheets');
-    const server = await import('../server/index');
-    const handleRpc = server.handleRpc;
 
     try {
       initSupabase(url, key);
