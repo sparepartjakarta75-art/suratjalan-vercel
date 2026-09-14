@@ -1134,24 +1134,6 @@ export async function buatPdfSuratJalan(
     const infoX =
       240;
 
-    const infoLabelWidth =
-      130;
-
-    const infoColonOffset =
-      infoLabelWidth;
-
-    const infoValueOffset =
-      infoLabelWidth + 12;
-
-    const infoValueWidth =
-      CONTENT_X +
-      CONTENT_W -
-      (infoX + infoValueOffset);
-
-
-    let infoY =
-      138;
-
 
     /*
      * Baris informasi.
@@ -1186,10 +1168,49 @@ export async function buatPdfSuratJalan(
     ];
 
 
+    /*
+     * FIX: jarak label -> ":" dirapatkan.
+     *
+     * Sebelumnya infoLabelWidth memakai angka tetap (130)
+     * yang jauh lebih lebar daripada label terpanjang
+     * ("Nomor Surat Jalan"), sehingga tanda ":" terasa jauh
+     * dari teks label. Sekarang lebar kolom label dihitung
+     * otomatis dari label terpanjang (termasuk "Pengirim"),
+     * ditambah sedikit padding saja.
+     */
+
     doc
       .font(FONT_NORMAL)
       .fontSize(8.5)
       .fillColor('#000');
+
+
+    const infoLabelPadding =
+      4;
+
+    const infoLabelWidth =
+      Math.max(
+        ...infoRows.map(
+          ([label]) =>
+            doc.widthOfString(label)
+        ),
+        doc.widthOfString('Pengirim')
+      ) + infoLabelPadding;
+
+    const infoColonOffset =
+      infoLabelWidth;
+
+    const infoValueOffset =
+      infoLabelWidth + 12;
+
+    const infoValueWidth =
+      CONTENT_X +
+      CONTENT_W -
+      (infoX + infoValueOffset);
+
+
+    let infoY =
+      138;
 
 
     for (
