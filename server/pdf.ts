@@ -25,7 +25,7 @@
  * │ ...                                                     │
  * │ Total                                      77          │
  * │                                                         │
- * │ DIBUAT OLEH MENGETAHUI   SOPIR/EKSPEDISI    PENERIMA    │
+ * │ PENGIRIM   MENGETAHUI   SOPIR/EKSPEDISI    PENERIMA    │
  * │                                                         │
  * │ nama          nama           -             nama        │
  * │ jabatan       jabatan                                    │
@@ -967,11 +967,14 @@ export async function buatPdfSuratJalan(
 
     /*
      * Cabang.
+     *
+     * FIX: font & ukuran disamakan dengan nama perusahaan
+     * (FONT_BOLD, 13pt) — sebelumnya lebih kecil (10pt).
      */
 
     doc
       .font(FONT_BOLD)
-      .fontSize(10)
+      .fontSize(13)
       .text(
         namaCabangFn(
           cabangList,
@@ -1951,7 +1954,7 @@ export async function buatPdfSuratJalan(
     drawSignature(
       doc,
 
-      'DIBUAT OLEH',
+      'Dibuat Oleh',
 
       /*
        * Untuk Surat Jalan contoh:
