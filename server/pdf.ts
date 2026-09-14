@@ -510,6 +510,19 @@ function drawSignature(
 ) {
 
   /*
+   * FIX: jarak antara judul (PENGIRIM/MENGETAHUI/...) dan
+   * nama di bawahnya sebelumnya 76pt (ruang tanda tangan
+   * terlalu longgar). Sekarang dipersempit jadi 45pt, tetap
+   * menyisakan ruang untuk tanda tangan asli tapi tidak
+   * sebesar sebelumnya.
+   */
+
+  const nameOffset = 45;
+  const descOffset = 58;
+  const lineOffset = 70;
+
+
+  /*
    * TITLE
    */
 
@@ -540,7 +553,7 @@ function drawSignature(
       .text(
         name,
         x,
-        y + 76,
+        y + nameOffset,
         {
           width,
           align: 'center',
@@ -562,7 +575,7 @@ function drawSignature(
       .text(
         description,
         x,
-        y + 89,
+        y + descOffset,
         {
           width,
           align: 'center',
@@ -580,11 +593,11 @@ function drawSignature(
     .lineWidth(0.75)
     .moveTo(
       x + width / 2 - 43,
-      y + 101
+      y + lineOffset
     )
     .lineTo(
       x + width / 2 + 43,
-      y + 101
+      y + lineOffset
     )
     .stroke();
 
@@ -1899,7 +1912,7 @@ export async function buatPdfSuratJalan(
      */
 
     if (
-      signatureY + 115 >
+      signatureY + 85 >
       PAGE_H - 25
     ) {
 
@@ -2055,7 +2068,7 @@ export async function buatPdfSuratJalan(
 
     const finalBoxBottom =
       Math.min(
-        signatureY + 118,
+        signatureY + 88,
         PAGE_H - OUTER_Y
       );
 
