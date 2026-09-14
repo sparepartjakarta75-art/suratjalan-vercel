@@ -295,18 +295,47 @@ function drawCell(
     .fillColor('#000');
 
 
+  /*
+   * FIX: teks sebelumnya selalu ditempel di posisi tetap
+   * (y + 5) dari atas sel, jadi kalau tingginya baris
+   * ditentukan oleh sel lain yang isinya lebih panjang
+   * (mis. kolom "Keterangan" 3 baris), sel-sel lain yang
+   * isinya cuma 1 baris jadi terlihat menempel ke atas
+   * dengan banyak ruang kosong di bawahnya. Sekarang tinggi
+   * teks dihitung dulu, lalu teks diposisikan rata tengah
+   * secara vertikal di dalam sel (rata atas-bawah).
+   */
+
+  const innerWidth =
+    width - 8;
+
+  const textHeight =
+    doc.heightOfString(
+      text || '',
+      {
+        width: innerWidth,
+        lineGap: 0,
+      }
+    );
+
+  const verticalOffset =
+    Math.max(
+      4,
+      (
+        height -
+        textHeight
+      ) / 2
+    );
+
+
   /* Text */
 
   doc.text(
     text || '',
     x + 4,
-    y + 5,
+    y + verticalOffset,
     {
-      width:
-        width - 8,
-
-      height:
-        height - 8,
+      width: innerWidth,
 
       align,
 
