@@ -1951,7 +1951,7 @@ export async function buatPdfSuratJalan(
     drawSignature(
       doc,
 
-      'Dibuat Oleh',
+      'DIBUAT OLEH',
 
       /*
        * Untuk Surat Jalan contoh:
