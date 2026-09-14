@@ -273,6 +273,7 @@ function drawCell(
   /* Border */
 
   doc
+    .lineWidth(0.5)
     .rect(
       x,
       y,
@@ -357,6 +358,7 @@ function drawTableHeader(
        */
 
       doc
+        .lineWidth(0.5)
         .rect(
           currentX,
           y,
@@ -1804,38 +1806,51 @@ export async function buatPdfSuratJalan(
 
 
     /*
-     * Total text.
+     * FIX: sebelumnya kotak teks "Total" dan kotak angka
+     * total quantity saling tumpang tindih (areanya
+     * beririsan), sehingga tercetak seperti "Tbtal" karena
+     * huruf & angka saling menimpa. Sekarang "Total"
+     * diletakkan rata kanan di dalam kolom Deskripsi
+     * (berhenti tepat di batas kolom Qty), dan angka total
+     * diletakkan rata tengah tepat di dalam kolom Qty —
+     * tidak ada lagi irisan area.
+     */
+
+    const totalBoundaryX =
+      tableX +
+      colWidths[0] +
+      colWidths[1] +
+      colWidths[2];
+
+
+    /*
+     * Total text — rata kanan, berhenti di batas kolom Qty.
      */
 
     doc.text(
       'Total',
-      tableX +
-        colWidths[0] +
-        colWidths[1] +
-        colWidths[2] -
-        5,
+      totalBoundaryX -
+        colWidths[2] +
+        8,
       totalY,
       {
-        width: 45,
+        width:
+          colWidths[2] - 12,
         align: 'right',
       }
     );
 
 
     /*
-     * Total quantity.
+     * Total quantity — rata tengah, di dalam kolom Qty.
      */
 
     doc.text(
       String(totalQty),
-      tableX +
-        colWidths[0] +
-        colWidths[1] +
-        colWidths[2] +
-        10,
+      totalBoundaryX,
       totalY,
       {
-        width: 35,
+        width: colWidths[3],
         align: 'center',
       }
     );
