@@ -1162,7 +1162,7 @@ export async function buatPdfSuratJalan(
      */
 
     const infoX =
-      240;
+      260;
 
 
     /*
@@ -1288,7 +1288,7 @@ export async function buatPdfSuratJalan(
       );
 
 
-      infoY += 17;
+      infoY += 13;
 
     }
 
@@ -1363,7 +1363,7 @@ export async function buatPdfSuratJalan(
       doc.text(
         pengirimTlp,
         infoX + infoValueOffset,
-        pengirimY + 24,
+        pengirimY + 23,
         {
           width: infoValueWidth,
         }
