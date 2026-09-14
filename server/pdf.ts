@@ -746,12 +746,42 @@ export async function buatPdfSuratJalan(
       );
 
 
-    const jamCetak =
-      Utilities.formatDate(
-        now,
-        timezone,
-        'HH.mm.ss'
+    /*
+     * FIX: "Jam" tercetak literal "HH.mm.ss" (bukan jam
+     * sebenarnya) karena shim Utilities.formatDate yang
+     * dipakai di sini rupanya tidak menerjemahkan pola jam
+     * dengan benar. Untuk menghindari ketergantungan pada
+     * shim tersebut, jam dihitung manual dari objek Date
+     * sesuai timezone, lalu di-pad ke 2 digit sendiri.
+     */
+
+    const jamFormatter =
+      new Intl.DateTimeFormat(
+        'en-GB',
+        {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        }
       );
+
+    const jamParts =
+      jamFormatter.formatToParts(now);
+
+    const getJamPart =
+      (type: string) =>
+        jamParts.find(
+          (p) => p.type === type
+        )?.value || '00';
+
+    const jamCetak =
+      getJamPart('hour') +
+      '.' +
+      getJamPart('minute') +
+      '.' +
+      getJamPart('second');
 
 
     const tanggalBukti =
