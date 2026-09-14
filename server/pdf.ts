@@ -1969,12 +1969,12 @@ export async function buatPdfPenerimaanEksternal(
     }
 
 
-    const h =
-      result.header || {};
+    const h: any =
+  result.header || {};
 
 
-    const items =
-      result.items || [];
+    const items: any[] =
+  result.items || [];
 
 
     /* ========================================================
