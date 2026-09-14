@@ -2,17 +2,33 @@
  * ============================================================
  * PDF.TS — Cetak Surat Jalan & Penerimaan Eksternal ke PDF
  * ============================================================
- * Port dari CetakPDF.gs:
- * - Menggunakan PDFKit, bukan HtmlService
- * - Cocok untuk runtime Node.js / Vercel
- * - Mempertahankan template Surat Jalan:
- *   meta info, kop perusahaan, POLYTRON + QR code,
- *   blok Kepada Yth, detail surat jalan,
- *   tabel barang, Total, dan 4 tanda tangan.
+ *
+ * Menggunakan:
+ *   - PDFKit
+ *   - QRCode
+ *
+ * Template mengikuti CetakPDF.gs:
+ *   - Meta info cetak
+ *   - PT. SARANA KENCANA MULYA
+ *   - Nama cabang
+ *   - POLYTRON
+ *   - QR Code
+ *   - Kepada Yth
+ *   - Nomor Bukti
+ *   - Tanggal Bukti
+ *   - Cabang Asal
+ *   - Cabang Tujuan
+ *   - Pengirim
+ *   - Remarks
+ *   - Tabel barang
+ *   - Total
+ *   - 4 tanda tangan
+ *
  * ============================================================
  */
 
 import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
 
 import {
   ambilHeaderById_,
@@ -27,16 +43,22 @@ import { Utilities, Session } from './sheets.js';
 
 
 /* ============================================================
- * KONSTANTA
+ * KONSTANTA A4
  * ============================================================
  */
 
-const PAGE_W = 595.28; // A4 portrait — points
+const PAGE_W = 595.28;
 const PAGE_H = 841.89;
+
+const PAGE_MARGIN_LEFT = 14;
+const PAGE_MARGIN_RIGHT = 14;
+
+const CONTENT_X = 20;
+const CONTENT_W = PAGE_W - 40;
 
 
 /* ============================================================
- * PDF DOCUMENT
+ * DOCUMENT
  * ============================================================
  */
 
@@ -49,17 +71,20 @@ function newDoc(): PDFDocument {
       left: 14,
       right: 14,
     },
+    autoFirstPage: true,
   });
 }
 
 
 /* ============================================================
- * COLLECT PDF BUFFER
+ * COLLECT PDF
  * ============================================================
  */
 
 function collect(doc: PDFDocument): Promise<Buffer> {
+
   return new Promise((resolve, reject) => {
+
     const chunks: Buffer[] = [];
 
     doc.on('data', (chunk: Buffer) => {
@@ -71,12 +96,32 @@ function collect(doc: PDFDocument): Promise<Buffer> {
     });
 
     doc.on('error', reject);
+
   });
 }
 
 
 /* ============================================================
- * HELPER CABANG
+ * SAFE TEXT
+ * ============================================================
+ */
+
+function safeText(value: any): string {
+
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return '';
+  }
+
+  return String(value);
+
+}
+
+
+/* ============================================================
+ * NAMA CABANG
  * ============================================================
  */
 
@@ -84,59 +129,237 @@ function namaCabangFn(
   cabangList: any[],
   kode: string
 ): string {
+
   const found = cabangList.find(
     (c) => c['Kode'] === kode
   );
 
   return found
-    ? found['Nama Cabang']
-    : kode;
+    ? String(found['Nama Cabang'] || kode)
+    : safeText(kode);
+
 }
 
 
 /* ============================================================
- * HELPER TEXT
+ * WRAP TEXT
+ * ============================================================
+ *
+ * Membantu menghitung tinggi teks sebelum membuat row tabel.
  * ============================================================
  */
 
-function safeText(value: any): string {
-  if (value === null || value === undefined) {
-    return '';
-  }
-
-  return String(value);
-}
-
-
-/* ============================================================
- * HELPER DRAW TABLE BORDER
- * ============================================================
- */
-
-function drawTableRow(
+function textHeight(
   doc: PDFDocument,
+  text: string,
+  width: number,
+  fontSize: number
+): number {
+
+  doc.fontSize(fontSize);
+
+  return doc.heightOfString(
+    text || '',
+    {
+      width,
+      lineGap: 0,
+    }
+  );
+
+}
+
+
+/* ============================================================
+ * DRAW TABLE CELL
+ * ============================================================
+ */
+
+function drawCell(
+  doc: PDFDocument,
+  text: string,
   x: number,
   y: number,
-  widths: number[],
-  height: number
+  width: number,
+  height: number,
+  options: {
+    align?: 'left' | 'center' | 'right';
+    bold?: boolean;
+  } = {}
 ) {
-  let currentX = x;
 
-  for (const width of widths) {
-    doc.rect(
-      currentX,
+  const paddingX = 4;
+  const paddingY = 3;
+
+  doc
+    .rect(
+      x,
       y,
       width,
       height
-    ).stroke();
+    )
+    .stroke();
 
-    currentX += width;
+
+  if (options.bold) {
+    doc.font('Helvetica-Bold');
+  } else {
+    doc.font('Helvetica');
   }
+
+
+  doc
+    .fontSize(7.5)
+    .fillColor('#000')
+    .text(
+      text || '',
+      x + paddingX,
+      y + paddingY,
+      {
+        width: width - paddingX * 2,
+        height: height - paddingY * 2,
+        align: options.align || 'left',
+        lineGap: 0,
+      }
+    );
+
 }
 
 
 /* ============================================================
- * CETAK SURAT JALAN
+ * QR CODE
+ * ============================================================
+ */
+
+async function generateQrCode(
+  value: string
+): Promise<Buffer> {
+
+  return await QRCode.toBuffer(
+    value,
+    {
+      type: 'png',
+      width: 120,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+    }
+  );
+
+}
+
+
+/* ============================================================
+ * DRAW SIGNATURE
+ * ============================================================
+ */
+
+function drawSignature(
+  doc: PDFDocument,
+  title: string,
+  name: string,
+  description: string,
+  x: number,
+  y: number,
+  width: number
+) {
+
+  /* Judul */
+
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(8)
+    .fillColor('#000')
+    .text(
+      title,
+      x,
+      y,
+      {
+        width,
+        align: 'center',
+      }
+    );
+
+
+  /* Area tanda tangan */
+
+  doc
+    .font('Helvetica')
+    .fontSize(8)
+    .text(
+      name || '-',
+      x,
+      y + 76,
+      {
+        width,
+        align: 'center',
+      }
+    );
+
+
+  /* Keterangan */
+
+  doc
+    .font('Helvetica-Oblique')
+    .fontSize(7)
+    .text(
+      description || '',
+      x,
+      y + 89,
+      {
+        width,
+        align: 'center',
+      }
+    );
+
+
+  /* Garis */
+
+  doc
+    .moveTo(
+      x + width / 2 - 40,
+      y + 100
+    )
+    .lineTo(
+      x + width / 2 + 40,
+      y + 100
+    )
+    .stroke();
+
+}
+
+
+/* ============================================================
+ * CEK SPACE HALAMAN
+ * ============================================================
+ */
+
+function ensureSpace(
+  doc: PDFDocument,
+  y: number,
+  requiredHeight: number
+): number {
+
+  const bottomLimit =
+    PAGE_H - 40;
+
+
+  if (
+    y + requiredHeight >
+    bottomLimit
+  ) {
+
+    doc.addPage();
+
+    return 30;
+  }
+
+
+  return y;
+
+}
+
+
+/* ============================================================
+ * BUAT PDF SURAT JALAN
  * ============================================================
  */
 
@@ -147,48 +370,74 @@ export async function buatPdfSuratJalan(
 
   try {
 
-    /* --------------------------------------------------------
-     * AMBIL DATA
-     * --------------------------------------------------------
+    /* ========================================================
+     * DATA HEADER
+     * ========================================================
      */
 
     const header =
-      await ambilHeaderById_(idSuratJalan);
+      await ambilHeaderById_(
+        idSuratJalan
+      );
+
 
     if (!header) {
+
       return {
         success: false,
-        message: 'Data surat jalan tidak ditemukan.',
+        message:
+          'Data surat jalan tidak ditemukan.',
       };
+
     }
 
 
-    const details =
-      await getDetailSuratJalan(idSuratJalan);
+    /* ========================================================
+     * DETAIL
+     * ========================================================
+     */
 
+    const details =
+      await getDetailSuratJalan(
+        idSuratJalan
+      );
+
+
+    /* ========================================================
+     * CABANG
+     * ========================================================
+     */
 
     const cabangList =
       await getCabangList();
 
 
+    /* ========================================================
+     * ALAMAT
+     * ========================================================
+     */
+
     const alamatData =
       await getAlamatRef();
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * ALAMAT TUJUAN
-     * --------------------------------------------------------
+     * ========================================================
      */
 
     let alamatTujuan: any = null;
+
 
     if (header['Tujuan Akhir']) {
 
       alamatTujuan =
         alamatData.find(
           (a) =>
-            a['SITE'] === header['Tujuan Akhir']
+            a['SITE'] ===
+            header['Tujuan Akhir']
         ) || null;
+
     }
 
 
@@ -200,58 +449,78 @@ export async function buatPdfSuratJalan(
       alamatTujuan =
         alamatData.find(
           (a) =>
-            a['SITE'] === header['Cabang Tujuan']
+            a['SITE'] ===
+            header['Cabang Tujuan']
         ) || null;
+
     }
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * ALAMAT CABANG ASAL
-     * --------------------------------------------------------
+     * ========================================================
      */
 
     let alamatCabangAsal: any = null;
+
 
     if (header['Cabang Asal']) {
 
       alamatCabangAsal =
         alamatData.find(
           (a) =>
-            a['SITE'] === header['Cabang Asal']
+            a['SITE'] ===
+            header['Cabang Asal']
         ) || null;
+
     }
 
 
+    /* ========================================================
+     * DATA PENGIRIM
+     * ========================================================
+     */
+
     const picMengetahui =
       alamatCabangAsal
-        ? alamatCabangAsal['PIC'] || '-'
+        ? safeText(
+            alamatCabangAsal['PIC'] || '-'
+          )
         : '-';
 
 
     const pengirim =
       alamatCabangAsal
-        ? alamatCabangAsal['PENGIRIM'] || '-'
+        ? safeText(
+            alamatCabangAsal['PENGIRIM'] || '-'
+          )
         : '-';
 
 
     const pengirimDept =
       alamatCabangAsal
-        ? alamatCabangAsal['DEPT'] || '-'
+        ? safeText(
+            alamatCabangAsal['DEPT'] || '-'
+          )
         : '-';
 
 
     const pengirimTlp =
       alamatCabangAsal
-        ? alamatCabangAsal['TLP'] || '-'
+        ? safeText(
+            alamatCabangAsal['TLP'] || '-'
+          )
         : '-';
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * TANGGAL
-     * --------------------------------------------------------
+     * ========================================================
      */
 
-    const now = new Date();
+    const now =
+      new Date();
+
 
     const tanggalCetak =
       Utilities.formatDate(
@@ -276,19 +545,44 @@ export async function buatPdfSuratJalan(
       );
 
 
-    /* --------------------------------------------------------
-     * DOCUMENT
-     * --------------------------------------------------------
+    /* ========================================================
+     * NAMA FILE
+     * ========================================================
      */
 
-    const doc = newDoc();
-
-
     const name =
-      String(
+      safeText(
         header['No Surat Jalan'] ||
         idSuratJalan
-      ).replace(/\//g, '-');
+      )
+      .replace(/[\/\\]/g, '-');
+
+
+    /* ========================================================
+     * DOCUMENT
+     * ========================================================
+     */
+
+    const doc =
+      newDoc();
+
+
+    /* ========================================================
+     * QR CODE
+     * ========================================================
+     */
+
+    const qrValue =
+      safeText(
+        header['No Surat Jalan'] ||
+        idSuratJalan
+      );
+
+
+    const qrBuffer =
+      await generateQrCode(
+        qrValue
+      );
 
 
     /* ========================================================
@@ -307,44 +601,51 @@ export async function buatPdfSuratJalan(
         jamCetak +
         ' - Oleh : ' +
         (namaPencetak || '-'),
+        CONTENT_X,
         20,
-        22,
         {
-          width: PAGE_W - 40,
+          width: CONTENT_W,
         }
       );
 
 
     /* ========================================================
-     * KOP / HEADER
+     * KOP
      * ========================================================
      */
 
-    const boxY = 40;
+    const headerY = 42;
+
+
+    /* Garis abu-abu */
 
     doc
       .rect(
-        14,
-        boxY,
-        PAGE_W - 28,
+        CONTENT_X - 6,
+        headerY,
+        CONTENT_W + 12,
         8
       )
       .fill('#f0f0f0');
 
 
+    /* Nama perusahaan */
+
     doc
-      .fillColor('#000')
       .font('Helvetica-Bold')
       .fontSize(13)
+      .fillColor('#000')
       .text(
         'PT. SARANA KENCANA MULYA',
-        20,
-        boxY + 4,
+        CONTENT_X,
+        headerY + 4,
         {
-          width: PAGE_W - 160,
+          width: 350,
         }
       );
 
+
+    /* Nama cabang */
 
     doc
       .font('Helvetica-Bold')
@@ -354,109 +655,115 @@ export async function buatPdfSuratJalan(
           cabangList,
           header['Cabang Asal']
         ),
-        20,
-        boxY + 22,
+        CONTENT_X,
+        headerY + 20,
         {
-          width: PAGE_W - 160,
+          width: 350,
         }
       );
 
+
+    /* POLYTRON */
 
     doc
       .font('Helvetica-Bold')
       .fontSize(13)
       .text(
         'POLYTRON',
-        0,
-        boxY + 4,
-        {
-          align: 'right',
-          width: PAGE_W - 40,
-        }
-      );
-
-
-    /* ========================================================
-     * QR CODE
-     * ========================================================
-     *
-     * PDFKit tidak melakukan download gambar QR secara
-     * otomatis seperti HTML <img>.
-     *
-     * Jika URL QR tersedia sebagai data/image buffer dari
-     * runtime Anda, bagian ini dapat diaktifkan.
-     *
-     * Untuk saat ini nomor surat jalan tetap ditampilkan
-     * sebagai informasi QR.
-     * ========================================================
-     */
-
-    const qrText =
-      safeText(header['No Surat Jalan']);
-
-
-    doc
-      .font('Helvetica')
-      .fontSize(7)
-      .text(
-        'QR: ' + qrText,
         PAGE_W - 150,
-        boxY + 24,
+        headerY + 4,
         {
-          width: 125,
+          width: 130,
           align: 'right',
         }
       );
 
 
+    /* QR */
+
+    doc.image(
+      qrBuffer,
+      PAGE_W - 92,
+      headerY + 20,
+      {
+        width: 60,
+        height: 60,
+      }
+    );
+
+
     /* ========================================================
-     * KEPADA YTH
+     * BLOK KEPADA
      * ========================================================
      */
 
-    let kepada = 'Kepada Yth.\n';
+    let kepadaLines: string[] = [
+      'Kepada Yth.',
+    ];
 
 
     if (alamatTujuan) {
 
-      kepada +=
-        safeText(alamatTujuan['PIC'] || '-') +
-        '\n';
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['PIC'] || '-'
+        )
+      );
 
-      kepada +=
-        safeText(alamatTujuan['DEPT'] || '') +
-        '\n';
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['DEPT'] || ''
+        )
+      );
 
-      kepada +=
-        safeText(alamatTujuan['ALAMAT'] || '') +
-        '\n';
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['ALAMAT'] || ''
+        )
+      );
 
-      kepada +=
-        safeText(alamatTujuan['KELURAHAN'] || '') +
-        '\n';
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['KELURAHAN'] || ''
+        )
+      );
 
-      kepada +=
-        safeText(alamatTujuan['KECAMATAN'] || '') +
-        '\n';
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['KECAMATAN'] || ''
+        )
+      );
 
-      kepada +=
-        safeText(alamatTujuan['KOTA'] || '') +
-        '\n';
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['KOTA'] || ''
+        )
+      );
 
-      kepada +=
-        safeText(alamatTujuan['TLP'] || '');
+      kepadaLines.push(
+        safeText(
+          alamatTujuan['TLP'] || ''
+        )
+      );
 
     } else {
 
-      kepada +=
+      kepadaLines.push(
         namaCabangFn(
           cabangList,
           header['Cabang Tujuan']
-        );
+        )
+      );
+
     }
 
 
-    const yKepada = 90;
+    const kepadaText =
+      kepadaLines.join('\n');
+
+
+    const yKepada =
+      headerY + 72;
 
 
     doc
@@ -464,22 +771,30 @@ export async function buatPdfSuratJalan(
       .fontSize(8.5)
       .fillColor('#000')
       .text(
-        kepada,
-        20,
+        kepadaText,
+        CONTENT_X,
         yKepada,
         {
-          width: 260,
+          width: 270,
           lineGap: 1,
         }
       );
 
 
     /* ========================================================
-     * INFORMASI SURAT JALAN
+     * INFORMASI KANAN
      * ========================================================
      */
 
-    const infoRows: Array<[string, string]> = [
+    const xInfo = 300;
+
+    let yInfo =
+      yKepada;
+
+
+    const infoRows: Array<
+      [string, string]
+    > = [
 
       [
         'Nomor Bukti',
@@ -512,22 +827,17 @@ export async function buatPdfSuratJalan(
         picMengetahui +
         '\n' +
         pengirimDept +
-        '\nTelp: ' +
+        '\n' +
+        'Telp: ' +
         pengirimTlp,
       ],
 
     ];
 
 
-    const xInfo = 300;
-
-    let yInfo = 90;
-
-
     doc
       .font('Helvetica')
-      .fontSize(8.5)
-      .fillColor('#000');
+      .fontSize(8.5);
 
 
     for (
@@ -536,6 +846,8 @@ export async function buatPdfSuratJalan(
     ) {
 
       doc
+        .font('Helvetica')
+        .fontSize(8.5)
         .text(
           label + ' :',
           xInfo,
@@ -561,16 +873,18 @@ export async function buatPdfSuratJalan(
           xInfo + 95,
           yInfo,
           {
-            width: 150,
+            width: 170,
+            lineGap: 1,
           }
         );
 
 
-      const valHeight =
+      const valueHeight =
         doc.heightOfString(
           value,
           {
-            width: 150,
+            width: 170,
+            lineGap: 1,
           }
         );
 
@@ -578,8 +892,9 @@ export async function buatPdfSuratJalan(
       yInfo +=
         Math.max(
           labelHeight,
-          valHeight
+          valueHeight
         ) + 4;
+
     }
 
 
@@ -590,8 +905,16 @@ export async function buatPdfSuratJalan(
 
     const remarksY =
       Math.max(
-        yInfo + 8,
-        180
+        yKepada +
+        doc.heightOfString(
+          kepadaText,
+          {
+            width: 270,
+            lineGap: 1,
+          }
+        ) +
+        8,
+        yInfo + 4
       );
 
 
@@ -603,96 +926,110 @@ export async function buatPdfSuratJalan(
         safeText(
           header['Dikirim Via'] || '-'
         ),
-        20,
+        CONTENT_X,
         remarksY,
         {
-          width: PAGE_W - 40,
+          width: CONTENT_W,
         }
       );
 
 
     /* ========================================================
-     * TABEL BARANG
+     * TABEL
      * ========================================================
      */
 
-    const tableTop =
+    const tableX =
+      CONTENT_X;
+
+
+    let tableY =
       remarksY + 22;
 
 
-    const tableX = 20;
-
     const tableWidth =
-      PAGE_W - 40;
+      CONTENT_W;
 
 
     /*
      * Lebar kolom:
      *
-     * No
-     * Part
-     * Deskripsi
-     * Qty
-     * UM
-     * Keterangan
-     * Status
+     * No          30
+     * Part        80
+     * Deskripsi   160
+     * Qty         30
+     * UM          40
+     * Keterangan  90
+     * Status      sisa
      */
 
-    const widths = [
+    const colWidths = [
+
       30,
-      78,
-      160,
-      30,
-      40,
+
       80,
-      tableWidth - (
-        30 +
-        78 +
-        160 +
-        30 +
-        40 +
-        80
-      ),
+
+      160,
+
+      30,
+
+      40,
+
+      90,
+
+      tableWidth -
+        (
+          30 +
+          80 +
+          160 +
+          30 +
+          40 +
+          90
+        ),
+
     ];
 
 
     const headersRow = [
+
       'No',
+
       'Part',
+
       'Deskripsi',
+
       'Qty',
+
       'UM',
+
       'Keterangan',
+
       'Status',
+
     ];
 
 
-    const rowH = 18;
+    const headerHeight = 20;
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * HEADER TABEL
-     * --------------------------------------------------------
+     * ========================================================
      */
 
-    let currentX = tableX;
-
-
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(7.5)
-      .fillColor('#000');
+    let x =
+      tableX;
 
 
     headersRow.forEach(
-      (headerText, i) => {
+      (title, i) => {
 
         doc
           .rect(
-            currentX,
-            tableTop,
-            widths[i],
-            rowH
+            x,
+            tableY,
+            colWidths[i],
+            headerHeight
           )
           .fillAndStroke(
             '#f0f0f0',
@@ -701,134 +1038,253 @@ export async function buatPdfSuratJalan(
 
 
         doc
+          .font('Helvetica-Bold')
+          .fontSize(7.5)
           .fillColor('#000')
           .text(
-            headerText,
-            currentX + 2,
-            tableTop + 5,
+            title,
+            x + 2,
+            tableY + 6,
             {
-              width: widths[i] - 4,
+              width:
+                colWidths[i] - 4,
               align:
-                i === 0 ||
-                i === 3 ||
-                i === 4
+                (
+                  i === 0 ||
+                  i === 3 ||
+                  i === 4
+                )
                   ? 'center'
                   : 'left',
             }
           );
 
 
-        currentX += widths[i];
+        x +=
+          colWidths[i];
+
       }
     );
 
 
-    /* --------------------------------------------------------
-     * ISI TABEL
-     * --------------------------------------------------------
+    tableY +=
+      headerHeight;
+
+
+    /* ========================================================
+     * DETAIL TABEL
+     * ========================================================
      */
-
-    let yRow =
-      tableTop + rowH;
-
 
     let totalQty = 0;
 
 
-    doc
-      .font('Helvetica')
-      .fontSize(7.5);
+    for (
+      let idx = 0;
+      idx < details.length;
+      idx++
+    ) {
+
+      const d =
+        details[idx];
 
 
-    details.forEach(
-      (d: any, idx: number) => {
-
-        const qtyNum =
-          Number(d.qty) || 0;
+      totalQty +=
+        Number(d.qty) || 0;
 
 
-        totalQty += qtyNum;
+      const values = [
+
+        safeText(
+          idx + 1
+        ),
+
+        safeText(
+          d.noBukti || '-'
+        ),
+
+        safeText(
+          d.deskripsi || ''
+        ),
+
+        safeText(
+          d.qty ?? ''
+        ),
+
+        safeText(
+          d.satuan || '-'
+        ),
+
+        safeText(
+          d.keterangan || '-'
+        ),
+
+        safeText(
+          d.statusFisik ||
+          'Belum Diterima'
+        ),
+
+      ];
 
 
-        const values = [
+      /* ------------------------------------------------------
+       * HITUNG TINGGI ROW BERDASARKAN ISI
+       * ------------------------------------------------------
+       */
 
-          String(idx + 1),
-
-          String(
-            d.noBukti || '-'
-          ),
-
-          String(
-            d.deskripsi || ''
-          ),
-
-          String(
-            d.qty ?? ''
-          ),
-
-          String(
-            d.satuan || '-'
-          ),
-
-          String(
-            d.keterangan || '-'
-          ),
-
-          String(
-            d.statusFisik ||
-            'Belum Diterima'
-          ),
-
-        ];
+      const textWidths =
+        colWidths.map(
+          (w) => w - 8
+        );
 
 
-        currentX = tableX;
+      const heights =
+        values.map(
+          (value, i) =>
+            textHeight(
+              doc,
+              value,
+              textWidths[i],
+              7.5
+            )
+        );
 
 
-        values.forEach(
-          (value, i) => {
+      /*
+       * Minimum 20 pt.
+       * Kalau teks panjang maka row akan membesar.
+       */
+
+      const rowHeight =
+        Math.max(
+          20,
+          ...heights.map(
+            (h) => h + 7
+          )
+        );
+
+
+      /* ------------------------------------------------------
+       * Jika tidak cukup ruang, buat halaman baru.
+       * ------------------------------------------------------
+       */
+
+      if (
+        tableY + rowHeight >
+        PAGE_H - 50
+      ) {
+
+        doc.addPage();
+
+        tableY = 30;
+
+
+        /*
+         * Header tabel diulang pada
+         * halaman berikutnya.
+         */
+
+        x = tableX;
+
+
+        headersRow.forEach(
+          (title, i) => {
 
             doc
               .rect(
-                currentX,
-                yRow,
-                widths[i],
-                rowH
+                x,
+                tableY,
+                colWidths[i],
+                headerHeight
               )
-              .stroke();
+              .fillAndStroke(
+                '#f0f0f0',
+                '#000'
+              );
 
 
             doc
+              .font('Helvetica-Bold')
+              .fontSize(7.5)
               .fillColor('#000')
               .text(
-                value,
-                currentX + 2,
-                yRow + 4,
+                title,
+                x + 2,
+                tableY + 6,
                 {
                   width:
-                    widths[i] - 4,
-                  height:
-                    rowH - 4,
+                    colWidths[i] - 4,
                   align:
-                    i === 0 ||
-                    i === 3 ||
-                    i === 4
+                    (
+                      i === 0 ||
+                      i === 3 ||
+                      i === 4
+                    )
                       ? 'center'
                       : 'left',
-                  ellipsis: true,
                 }
               );
 
 
-            currentX +=
-              widths[i];
+            x +=
+              colWidths[i];
+
           }
         );
 
 
-        yRow += rowH;
+        tableY +=
+          headerHeight;
+
       }
-    );
+
+
+      /* ------------------------------------------------------
+       * GAMBAR ROW
+       * ------------------------------------------------------
+       */
+
+      x =
+        tableX;
+
+
+      values.forEach(
+        (value, i) => {
+
+          const align =
+            (
+              i === 0 ||
+              i === 3 ||
+              i === 4
+            )
+              ? 'center'
+              : 'left';
+
+
+          drawCell(
+            doc,
+            value,
+            x,
+            tableY,
+            colWidths[i],
+            rowHeight,
+            {
+              align,
+            }
+          );
+
+
+          x +=
+            colWidths[i];
+
+        }
+      );
+
+
+      tableY +=
+        rowHeight;
+
+    }
 
 
     /* ========================================================
@@ -836,36 +1292,52 @@ export async function buatPdfSuratJalan(
      * ========================================================
      */
 
+    /*
+     * Pastikan total tidak menabrak batas halaman.
+     */
+
+    if (
+      tableY + 25 >
+      PAGE_H - 40
+    ) {
+
+      doc.addPage();
+
+      tableY = 30;
+
+    }
+
+
     doc
       .font('Helvetica-Bold')
-      .fontSize(7.5);
-
-
-    doc
+      .fontSize(7.5)
+      .fillColor('#000')
       .text(
         'Total',
         tableX,
-        yRow + 5,
+        tableY + 5,
         {
           width:
-            widths[0] +
-            widths[1] +
-            widths[2],
+            colWidths[0] +
+            colWidths[1] +
+            colWidths[2],
           align: 'right',
         }
       );
 
 
     doc
+      .font('Helvetica-Bold')
+      .fontSize(7.5)
       .text(
         String(totalQty),
         tableX +
-          widths[0] +
-          widths[1] +
-          widths[2],
-        yRow + 5,
+          colWidths[0] +
+          colWidths[1] +
+          colWidths[2],
+        tableY + 5,
         {
-          width: widths[3],
+          width: colWidths[3],
           align: 'center',
         }
       );
@@ -896,127 +1368,77 @@ export async function buatPdfSuratJalan(
         : '';
 
 
-    const sigY =
-      yRow + 40;
+    let sigY =
+      tableY + 45;
 
 
-    const boxW =
+    /*
+     * Jika tanda tangan tidak cukup
+     * di halaman sekarang, pindah halaman.
+     */
+
+    if (
+      sigY + 110 >
+      PAGE_H - 20
+    ) {
+
+      doc.addPage();
+
+      sigY = 40;
+
+    }
+
+
+    const sigBoxW =
       (PAGE_W - 40) / 4;
 
 
-    const sigs: Array<
-      [string, string, string]
-    > = [
-
-      [
-        'PENGIRIM',
-        pengirim,
-        'ADM SPAREPART',
-      ],
-
-      [
-        'MENGETAHUI',
-        picMengetahui,
-        'HoDS',
-      ],
-
-      [
-        'SOPIR/EKSPEDISI',
-        namaSopir,
-        noTruk,
-      ],
-
-      [
-        'PENERIMA',
-        namaPenerima,
-        '',
-      ],
-
-    ];
+    drawSignature(
+      doc,
+      'PENGIRIM',
+      pengirim,
+      'ADM SPAREPART',
+      20,
+      sigY,
+      sigBoxW
+    );
 
 
-    sigs.forEach(
-      (
-        signature,
-        i
-      ) => {
-
-        const x =
-          20 +
-          i * boxW;
-
-
-        /* Judul */
-
-        doc
-          .font('Helvetica-Bold')
-          .fontSize(8)
-          .text(
-            signature[0],
-            x,
-            sigY,
-            {
-              width: boxW,
-              align: 'center',
-            }
-          );
+    drawSignature(
+      doc,
+      'MENGETAHUI',
+      picMengetahui,
+      'HoDS',
+      20 + sigBoxW,
+      sigY,
+      sigBoxW
+    );
 
 
-        /* Area tanda tangan */
-
-        doc
-          .font('Helvetica')
-          .fontSize(8)
-          .text(
-            signature[1] || '-',
-            x,
-            sigY + 65,
-            {
-              width: boxW,
-              align: 'center',
-            }
-          );
+    drawSignature(
+      doc,
+      'SOPIR/EKSPEDISI',
+      namaSopir,
+      noTruk,
+      20 + sigBoxW * 2,
+      sigY,
+      sigBoxW
+    );
 
 
-        /* Keterangan */
-
-        doc
-          .font('Helvetica-Oblique')
-          .fontSize(7)
-          .text(
-            signature[2],
-            x,
-            sigY + 78,
-            {
-              width: boxW,
-              align: 'center',
-            }
-          );
-
-
-        /* Garis tanda tangan */
-
-        doc
-          .moveTo(
-            x +
-              boxW / 2 -
-              40,
-            sigY + 88
-          )
-          .lineTo(
-            x +
-              boxW / 2 +
-              40,
-            sigY + 88
-          )
-          .stroke();
-
-      }
+    drawSignature(
+      doc,
+      'PENERIMA',
+      namaPenerima,
+      '',
+      20 + sigBoxW * 3,
+      sigY,
+      sigBoxW
     );
 
 
     /* ========================================================
-     * SELESAI PDF
+     * END PDF
      * ========================================================
      */
 
@@ -1050,7 +1472,10 @@ export async function buatPdfSuratJalan(
 
       message:
         'Gagal membuat PDF: ' +
-        e.message,
+        (
+          e?.message ||
+          String(e)
+        ),
 
     };
 
@@ -1060,7 +1485,7 @@ export async function buatPdfSuratJalan(
 
 
 /* ============================================================
- * CETAK PENERIMAAN EKSTERNAL
+ * BUAT PDF PENERIMAAN EKSTERNAL
  * ============================================================
  */
 
@@ -1070,12 +1495,21 @@ export async function buatPdfPenerimaanEksternal(
 
   try {
 
+    /* ========================================================
+     * DATA
+     * ========================================================
+     */
+
     const result =
-      await getPenerimaanEksternalDetail(id);
+      await getPenerimaanEksternalDetail(
+        id
+      );
 
 
     if (!result.success) {
+
       return result;
+
     }
 
 
@@ -1094,18 +1528,24 @@ export async function buatPdfPenerimaanEksternal(
       );
 
 
+    /* ========================================================
+     * DOCUMENT
+     * ========================================================
+     */
+
     const doc =
       newDoc();
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * JUDUL
-     * --------------------------------------------------------
+     * ========================================================
      */
 
     doc
       .font('Helvetica-Bold')
       .fontSize(14)
+      .fillColor('#000')
       .text(
         'PENERIMAAN EKSTERNAL',
         {
@@ -1129,9 +1569,9 @@ export async function buatPdfPenerimaanEksternal(
       .moveDown(1);
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * INFORMASI
-     * --------------------------------------------------------
+     * ========================================================
      */
 
     const rows: Array<
@@ -1140,7 +1580,9 @@ export async function buatPdfPenerimaanEksternal(
 
       [
         'Sumber',
-        safeText(h.rms || ''),
+        safeText(
+          h.rms || ''
+        ),
       ],
 
       [
@@ -1150,12 +1592,16 @@ export async function buatPdfPenerimaanEksternal(
 
       [
         'No. Truk',
-        safeText(h.noTruk || '-'),
+        safeText(
+          h.noTruk || '-'
+        ),
       ],
 
       [
         'Kurir / Sopir',
-        safeText(h.kurir || '-'),
+        safeText(
+          h.kurir || '-'
+        ),
       ],
 
       [
@@ -1175,7 +1621,9 @@ export async function buatPdfPenerimaanEksternal(
           .font('Helvetica')
           .fontSize(9)
           .text(
-            label + ' : ' + value,
+            label +
+            ' : ' +
+            value,
             30,
             doc.y,
             {
@@ -1188,19 +1636,20 @@ export async function buatPdfPenerimaanEksternal(
     );
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * TABEL
-     * --------------------------------------------------------
+     * ========================================================
      */
 
     doc.moveDown(0.5);
 
 
-    const tableTop =
+    let tableY =
       doc.y;
 
 
-    const tableX = 30;
+    const tableX =
+      30;
 
 
     const tableWidth =
@@ -1209,15 +1658,21 @@ export async function buatPdfPenerimaanEksternal(
 
     const colWidths = [
 
-      60,
-      60,
-      150,
-      40,
       50,
+
+      60,
+
+      150,
+
+      40,
+
+      50,
+
       80,
+
       tableWidth -
         (
-          60 +
+          50 +
           60 +
           150 +
           40 +
@@ -1247,32 +1702,27 @@ export async function buatPdfPenerimaanEksternal(
     ];
 
 
-    const rowH = 16;
+    const headerHeight = 20;
 
 
-    /* --------------------------------------------------------
+    /* ========================================================
      * HEADER TABEL
-     * --------------------------------------------------------
+     * ========================================================
      */
 
-    let currentX =
+    let x =
       tableX;
 
 
-    doc
-      .font('Helvetica-Bold')
-      .fontSize(7.5);
-
-
     headersRow.forEach(
-      (headerText, i) => {
+      (title, i) => {
 
         doc
           .rect(
-            currentX,
-            tableTop,
+            x,
+            tableY,
             colWidths[i],
-            rowH
+            headerHeight
           )
           .fillAndStroke(
             '#f0f0f0',
@@ -1281,127 +1731,217 @@ export async function buatPdfPenerimaanEksternal(
 
 
         doc
+          .font('Helvetica-Bold')
+          .fontSize(7.5)
           .fillColor('#000')
           .text(
-            headerText,
-            currentX + 2,
-            tableTop + 4,
+            title,
+            x + 2,
+            tableY + 6,
             {
               width:
                 colWidths[i] - 4,
               align:
-                i === 0 ||
-                i === 3
+                (
+                  i === 0 ||
+                  i === 3
+                )
                   ? 'center'
                   : 'left',
             }
           );
 
 
-        currentX +=
+        x +=
           colWidths[i];
+
       }
     );
 
 
-    /* --------------------------------------------------------
-     * DATA
-     * --------------------------------------------------------
+    tableY +=
+      headerHeight;
+
+
+    /* ========================================================
+     * ITEM
+     * ========================================================
      */
 
-    let yRow =
-      tableTop + rowH;
+    for (
+      let idx = 0;
+      idx < items.length;
+      idx++
+    ) {
+
+      const it =
+        items[idx];
 
 
-    doc
-      .font('Helvetica')
-      .fontSize(7.5);
+      const values = [
+
+        safeText(
+          it.no ||
+          idx + 1
+        ),
+
+        safeText(
+          it.noBukti || '-'
+        ),
+
+        safeText(
+          it.deskripsi || ''
+        ),
+
+        safeText(
+          it.qty ?? ''
+        ),
+
+        safeText(
+          it.satuan || ''
+        ),
+
+        safeText(
+          it.keterangan || '-'
+        ),
+
+        safeText(
+          it.statusFisik || '-'
+        ),
+
+      ];
 
 
-    items.forEach(
-      (it: any) => {
+      /* Hitung tinggi */
 
-        const values = [
-
-          safeText(
-            it.no || ''
-          ),
-
-          safeText(
-            it.noBukti || '-'
-          ),
-
-          safeText(
-            it.deskripsi || ''
-          ),
-
-          safeText(
-            it.qty ?? ''
-          ),
-
-          safeText(
-            it.satuan || ''
-          ),
-
-          safeText(
-            it.keterangan || '-'
-          ),
-
-          safeText(
-            it.statusFisik || '-'
-          ),
-
-        ];
+      const heights =
+        values.map(
+          (value, i) =>
+            textHeight(
+              doc,
+              value,
+              colWidths[i] - 8,
+              7.5
+            )
+        );
 
 
-        currentX =
-          tableX;
+      const rowHeight =
+        Math.max(
+          20,
+          ...heights.map(
+            (h) => h + 7
+          )
+        );
 
 
-        values.forEach(
-          (value, i) => {
+      /* Halaman baru */
+
+      if (
+        tableY + rowHeight >
+        PAGE_H - 50
+      ) {
+
+        doc.addPage();
+
+        tableY = 30;
+
+
+        /* Header ulang */
+
+        x = tableX;
+
+
+        headersRow.forEach(
+          (title, i) => {
 
             doc
               .rect(
-                currentX,
-                yRow,
+                x,
+                tableY,
                 colWidths[i],
-                rowH
+                headerHeight
               )
-              .stroke();
+              .fillAndStroke(
+                '#f0f0f0',
+                '#000'
+              );
 
 
             doc
+              .font('Helvetica-Bold')
+              .fontSize(7.5)
               .fillColor('#000')
               .text(
-                value,
-                currentX + 2,
-                yRow + 4,
+                title,
+                x + 2,
+                tableY + 6,
                 {
                   width:
                     colWidths[i] - 4,
-                  height:
-                    rowH - 4,
                   align:
-                    i === 0 ||
-                    i === 3
+                    (
+                      i === 0 ||
+                      i === 3
+                    )
                       ? 'center'
                       : 'left',
-                  ellipsis: true,
                 }
               );
 
 
-            currentX +=
+            x +=
               colWidths[i];
+
           }
         );
 
 
-        yRow += rowH;
+        tableY +=
+          headerHeight;
 
       }
-    );
+
+
+      /* Gambar row */
+
+      x =
+        tableX;
+
+
+      values.forEach(
+        (value, i) => {
+
+          drawCell(
+            doc,
+            value,
+            x,
+            tableY,
+            colWidths[i],
+            rowHeight,
+            {
+              align:
+                (
+                  i === 0 ||
+                  i === 3
+                )
+                  ? 'center'
+                  : 'left',
+            }
+          );
+
+
+          x +=
+            colWidths[i];
+
+        }
+      );
+
+
+      tableY +=
+        rowHeight;
+
+    }
 
 
     /* ========================================================
@@ -1409,11 +1949,23 @@ export async function buatPdfPenerimaanEksternal(
      * ========================================================
      */
 
-    const sigY =
-      yRow + 60;
+    let sigY =
+      tableY + 60;
 
 
-    const boxW =
+    if (
+      sigY + 80 >
+      PAGE_H - 20
+    ) {
+
+      doc.addPage();
+
+      sigY = 40;
+
+    }
+
+
+    const sigBoxW =
       (PAGE_W - 40) / 3;
 
 
@@ -1433,18 +1985,19 @@ export async function buatPdfPenerimaanEksternal(
 
         const x =
           20 +
-          i * boxW;
+          i * sigBoxW;
 
 
         doc
           .font('Helvetica-Bold')
           .fontSize(8)
+          .fillColor('#000')
           .text(
             title,
             x,
             sigY,
             {
-              width: boxW,
+              width: sigBoxW,
               align: 'center',
             }
           );
@@ -1453,13 +2006,13 @@ export async function buatPdfPenerimaanEksternal(
         doc
           .moveTo(
             x +
-              boxW / 2 -
+              sigBoxW / 2 -
               45,
             sigY + 50
           )
           .lineTo(
             x +
-              boxW / 2 +
+              sigBoxW / 2 +
               45,
             sigY + 50
           )
@@ -1469,9 +2022,9 @@ export async function buatPdfPenerimaanEksternal(
     );
 
 
-    /* --------------------------------------------------------
-     * SELESAI
-     * --------------------------------------------------------
+    /* ========================================================
+     * END
+     * ========================================================
      */
 
     doc.end();
@@ -1513,7 +2066,10 @@ export async function buatPdfPenerimaanEksternal(
 
       message:
         'Gagal membuat PDF: ' +
-        e.message,
+        (
+          e?.message ||
+          String(e)
+        ),
 
     };
 
