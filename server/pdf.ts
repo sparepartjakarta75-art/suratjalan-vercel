@@ -1162,7 +1162,7 @@ export async function buatPdfSuratJalan(
      */
 
     const infoX =
-      260;
+      290;
 
 
     /*
@@ -1241,6 +1241,17 @@ export async function buatPdfSuratJalan(
 
     let infoY =
       138;
+
+
+    /*
+     * Titik atas kotak border info (diisi setelah baris
+     * pertama diketahui, dipakai untuk menggambar border
+     * yang hanya melingkupi teks, bukan sampai ke bawah
+     * halaman).
+     */
+
+    const infoBoxTop =
+      infoY - 6;
 
 
     for (
@@ -1370,6 +1381,39 @@ export async function buatPdfSuratJalan(
       );
 
     }
+
+
+    /*
+     * FIX: border mengelilingi blok info (Nomor Surat
+     * Jalan ... Pengirim) saja, TIDAK memanjang sampai ke
+     * bawah halaman. Tinggi kotak dihitung dari posisi
+     * baris terakhir yang benar-benar dicetak.
+     */
+
+    const infoBoxBottom =
+      pengirimY +
+      (
+        pengirimTlp
+          ? 23
+          : 12
+      ) +
+      10;
+
+
+    doc
+      .lineWidth(0.7)
+      .rect(
+        infoX - 6,
+        infoBoxTop,
+        (
+          CONTENT_X +
+          CONTENT_W
+        ) -
+          (infoX - 6),
+        infoBoxBottom -
+          infoBoxTop
+      )
+      .stroke();
 
 
     /* ========================================================
