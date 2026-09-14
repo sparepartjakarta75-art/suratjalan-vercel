@@ -830,9 +830,18 @@ export async function buatPdfSuratJalan(
     /* ========================================================
      * OUTER BOX
      * ========================================================
+     *
+     * FIX: border luar TIDAK digambar di sini lagi. Sebelumnya
+     * border langsung digambar penuh setinggi halaman A4 di
+     * awal, sehingga surat jalan yang isinya pendek (mis. 1-2
+     * baris part) menyisakan kotak kosong yang besar di bawah
+     * blok tanda tangan. Sekarang border halaman terakhir baru
+     * digambar di akhir, setelah tinggi konten sebenarnya
+     * diketahui (lihat bagian "BORDER HALAMAN TERAKHIR" dekat
+     * doc.end()). Border penuh tetap dipakai untuk
+     * halaman-halaman sebelumnya kalau tabel meluber ke
+     * halaman baru (lihat pengecekan overflow di bawah).
      */
-
-    drawOuterBox(doc);
 
 
     /* ========================================================
@@ -1686,9 +1695,15 @@ export async function buatPdfSuratJalan(
         PAGE_H - 135
       ) {
 
-        doc.addPage();
+        /*
+         * Halaman yang akan ditinggalkan ini sudah terisi
+         * tabel sampai mendekati batas bawah, jadi border
+         * penuh masih sesuai di sini.
+         */
 
         drawOuterBox(doc);
+
+        doc.addPage();
 
         tableY = 35;
 
@@ -1844,9 +1859,16 @@ export async function buatPdfSuratJalan(
       PAGE_H - 25
     ) {
 
-      doc.addPage();
+      /*
+       * Halaman lama ditutup dengan border penuh (sudah
+       * terisi tabel sampai hampir bawah), lalu tanda
+       * tangan dipindah ke halaman baru yang border-nya
+       * akan digambar dinamis di akhir.
+       */
 
       drawOuterBox(doc);
+
+      doc.addPage();
 
       signatureY = 80;
 
@@ -1975,6 +1997,33 @@ export async function buatPdfSuratJalan(
 
       signatureWidth
     );
+
+
+    /* ========================================================
+     * BORDER HALAMAN TERAKHIR (dinamis)
+     * ========================================================
+     *
+     * Border halaman terakhir digambar SEKARANG, setelah
+     * blok tanda tangan selesai, supaya tingginya mengikuti
+     * konten yang sebenarnya (tidak memanjang kosong sampai
+     * ke bawah halaman A4 seperti sebelumnya).
+     */
+
+    const finalBoxBottom =
+      Math.min(
+        signatureY + 118,
+        PAGE_H - OUTER_Y
+      );
+
+    doc
+      .lineWidth(0.8)
+      .rect(
+        OUTER_X,
+        OUTER_Y,
+        OUTER_W,
+        finalBoxBottom - OUTER_Y
+      )
+      .stroke();
 
 
     /* ========================================================
