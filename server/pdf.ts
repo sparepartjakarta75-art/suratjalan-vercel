@@ -25,7 +25,7 @@
  * │ ...                                                     │
  * │ Total                                      77          │
  * │                                                         │
- * │ PENGIRIM   MENGETAHUI   SOPIR/EKSPEDISI    PENERIMA    │
+ * │ DIBUAT OLEH MENGETAHUI   SOPIR/EKSPEDISI    PENERIMA    │
  * │                                                         │
  * │ nama          nama           -             nama        │
  * │ jabatan       jabatan                                    │
@@ -745,10 +745,17 @@ export async function buatPdfSuratJalan(
         : '-';
 
 
+    /*
+     * FIX: nilai yang tampil pada baris "Pengirim" di blok
+     * info kanan sekarang diambil dari field PIC cabang asal
+     * (sama seperti yang dipakai untuk "MENGETAHUI"), bukan
+     * dari field PENGIRIM lagi.
+     */
+
     const pengirim =
       alamatCabangAsal
         ? safeText(
-            alamatCabangAsal['PENGIRIM'] || '-'
+            alamatCabangAsal['PIC'] || '-'
           )
         : '-';
 
@@ -1937,14 +1944,14 @@ export async function buatPdfSuratJalan(
 
 
     /* ========================================================
-     * PENGIRIM
+     * DIBUAT OLEH (sebelumnya berjudul "PENGIRIM")
      * ========================================================
      */
 
     drawSignature(
       doc,
 
-      'PENGIRIM',
+      'Dibuat Oleh',
 
       /*
        * Untuk Surat Jalan contoh:
