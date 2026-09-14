@@ -933,19 +933,29 @@ export async function buatPdfSuratJalan(
     /* ========================================================
      * BLOK KEPADA
      * ========================================================
+     *
+     * FIX: nama PIC sebelumnya digambar 2x (sekali sebagai
+     * bagian dari kepadaText biasa, sekali lagi di-bold-kan
+     * menimpa posisi yang sama) sehingga terlihat dobel /
+     * seperti coretan (strikethrough) pada PDF. Sekarang PIC
+     * name hanya digambar SEKALI, langsung dengan font bold,
+     * lalu sisa baris (dept, alamat, dst) menyusul di
+     * bawahnya berdasarkan tinggi teks aktual — bukan offset
+     * angka tetap (+13) yang rawan meleset.
      */
 
-    let kepadaLines: string[] = [
-      'Kepada Yth.',
-    ];
+    const picName =
+      alamatTujuan
+        ? safeText(
+            alamatTujuan['PIC'] || ''
+          )
+        : '';
+
+
+    let kepadaRestLines: string[] = [];
 
 
     if (alamatTujuan) {
-
-      const pic =
-        safeText(
-          alamatTujuan['PIC'] || ''
-        );
 
       const dept =
         safeText(
@@ -978,41 +988,37 @@ export async function buatPdfSuratJalan(
         );
 
 
-      if (pic) {
-        kepadaLines.push(pic);
-      }
-
       if (dept) {
-        kepadaLines.push(dept);
+        kepadaRestLines.push(dept);
       }
 
       if (alamat) {
-        kepadaLines.push(alamat);
+        kepadaRestLines.push(alamat);
       }
 
       if (kelurahan) {
-        kepadaLines.push(
+        kepadaRestLines.push(
           'KEL. ' + kelurahan
         );
       }
 
       if (kecamatan) {
-        kepadaLines.push(
+        kepadaRestLines.push(
           'KEC. ' + kecamatan
         );
       }
 
       if (kota) {
-        kepadaLines.push(kota);
+        kepadaRestLines.push(kota);
       }
 
       if (tlp) {
-        kepadaLines.push(tlp);
+        kepadaRestLines.push(tlp);
       }
 
     } else {
 
-      kepadaLines.push(
+      kepadaRestLines.push(
         namaCabangFn(
           cabangList,
           header['Cabang Tujuan']
@@ -1022,51 +1028,92 @@ export async function buatPdfSuratJalan(
     }
 
 
-    const kepadaText =
-      kepadaLines.join('\n');
+    /*
+     * Lebar blok "Kepada" dipersempit supaya tidak
+     * bertabrakan dengan blok info di kanan yang sekarang
+     * digeser lebih ke kiri (lihat INFO_X di bawah).
+     */
+
+    const kepadaWidth = 210;
+
+    const kepadaY = 116;
 
 
-    const kepadaY =
-      116;
-
+    /*
+     * Baris 1 : "Kepada Yth."
+     */
 
     doc
       .font(FONT_NORMAL)
       .fontSize(8.5)
       .fillColor('#000')
       .text(
-        kepadaText,
+        'Kepada Yth.',
         CONTENT_X,
         kepadaY,
         {
-          width: 290,
+          width: kepadaWidth,
           lineGap: 1,
         }
       );
 
 
+    let kepadaCursorY =
+      kepadaY + 12;
+
+
     /*
-     * Jika nama PIC adalah "BP. ..."
-     * dibuat bold seperti contoh.
+     * Baris 2 : nama PIC, bold, digambar SATU KALI saja.
      */
 
-    if (
-      kepadaLines.length > 1
-    ) {
-
-      const picY =
-        kepadaY + 13;
-
+    if (picName) {
 
       doc
         .font(FONT_BOLD)
         .fontSize(8.5)
         .text(
-          kepadaLines[1],
+          picName,
           CONTENT_X,
-          picY,
+          kepadaCursorY,
           {
-            width: 290,
+            width: kepadaWidth,
+            lineGap: 1,
+          }
+        );
+
+
+      kepadaCursorY +=
+        doc.heightOfString(
+          picName,
+          {
+            width: kepadaWidth,
+            lineGap: 1,
+          }
+        ) + 1;
+
+    }
+
+
+    /*
+     * Baris berikutnya : dept, alamat, kel, kec, kota, tlp.
+     */
+
+    if (kepadaRestLines.length > 0) {
+
+      const restText =
+        kepadaRestLines.join('\n');
+
+
+      doc
+        .font(FONT_NORMAL)
+        .fontSize(8.5)
+        .text(
+          restText,
+          CONTENT_X,
+          kepadaCursorY,
+          {
+            width: kepadaWidth,
+            lineGap: 1,
           }
         );
 
@@ -1076,10 +1123,30 @@ export async function buatPdfSuratJalan(
     /* ========================================================
      * INFORMASI KANAN
      * ========================================================
+     *
+     * FIX: blok informasi (Nomor Surat Jalan, Tanggal Bukti,
+     * Cabang Asal, Cabang Tujuan, Pengirim) digeser lebih ke
+     * kiri dan lebar kolom nilai diperlebar, supaya nomor
+     * surat jalan yang panjang (mis. "002/SVRMB-JKT/CGN/IX/26")
+     * tidak terpotong / lari mepet ke tepi kertas.
      */
 
     const infoX =
-      300;
+      240;
+
+    const infoLabelWidth =
+      130;
+
+    const infoColonOffset =
+      infoLabelWidth;
+
+    const infoValueOffset =
+      infoLabelWidth + 12;
+
+    const infoValueWidth =
+      CONTENT_X +
+      CONTENT_W -
+      (infoX + infoValueOffset);
 
 
     let infoY =
@@ -1145,14 +1212,14 @@ export async function buatPdfSuratJalan(
           infoX,
           infoY,
           {
-            width: 180,
+            width: infoLabelWidth,
           }
         );
 
 
       doc.text(
         ':',
-        infoX + 185,
+        infoX + infoColonOffset,
         infoY,
         {
           width: 8,
@@ -1162,10 +1229,10 @@ export async function buatPdfSuratJalan(
 
       doc.text(
         value,
-        infoX + 195,
+        infoX + infoValueOffset,
         infoY,
         {
-          width: 90,
+          width: infoValueWidth,
         }
       );
 
@@ -1192,14 +1259,14 @@ export async function buatPdfSuratJalan(
         infoX,
         pengirimY,
         {
-          width: 180,
+          width: infoLabelWidth,
         }
       );
 
 
     doc.text(
       ':',
-      infoX + 185,
+      infoX + infoColonOffset,
       pengirimY,
       {
         width: 8,
@@ -1216,10 +1283,10 @@ export async function buatPdfSuratJalan(
       .fontSize(8.5)
       .text(
         pengirim,
-        infoX + 195,
+        infoX + infoValueOffset,
         pengirimY,
         {
-          width: 100,
+          width: infoValueWidth,
         }
       );
 
@@ -1232,10 +1299,10 @@ export async function buatPdfSuratJalan(
         safeText(
           header['Cabang Asal']
         ),
-        infoX + 195,
+        infoX + infoValueOffset,
         pengirimY + 12,
         {
-          width: 100,
+          width: infoValueWidth,
         }
       );
 
@@ -1244,10 +1311,10 @@ export async function buatPdfSuratJalan(
 
       doc.text(
         pengirimTlp,
-        infoX + 195,
+        infoX + infoValueOffset,
         pengirimY + 24,
         {
-          width: 100,
+          width: infoValueWidth,
         }
       );
 
