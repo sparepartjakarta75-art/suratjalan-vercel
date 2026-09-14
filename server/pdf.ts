@@ -273,7 +273,7 @@ function drawCell(
   /* Border */
 
   doc
-    .lineWidth(0.5)
+    .lineWidth(0.75)
     .rect(
       x,
       y,
@@ -358,7 +358,7 @@ function drawTableHeader(
        */
 
       doc
-        .lineWidth(0.5)
+        .lineWidth(0.75)
         .rect(
           currentX,
           y,
@@ -428,7 +428,7 @@ function drawOuterBox(
 ) {
 
   doc
-    .lineWidth(0.8)
+    .lineWidth(0.75)
     .rect(
       OUTER_X,
       OUTER_Y,
@@ -548,7 +548,7 @@ function drawSignature(
    */
 
   doc
-    .lineWidth(0.7)
+    .lineWidth(0.75)
     .moveTo(
       x + width / 2 - 43,
       y + 101
@@ -2031,7 +2031,7 @@ export async function buatPdfSuratJalan(
       );
 
     doc
-      .lineWidth(0.8)
+      .lineWidth(0.75)
       .rect(
         OUTER_X,
         OUTER_Y,
