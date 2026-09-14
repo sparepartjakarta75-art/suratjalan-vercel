@@ -1129,7 +1129,12 @@ export async function buatPdfSuratJalan(
 
     const kepadaWidth = 210;
 
-    const kepadaY = 116;
+    /*
+     * FIX: jarak antara kop (nama cabang) dan blok "Kepada
+     * Yth." / info kanan dipersempit — dari 116 menjadi 90.
+     */
+
+    const kepadaY = 90;
 
 
     /*
@@ -1303,7 +1308,7 @@ export async function buatPdfSuratJalan(
 
 
     let infoY =
-      138;
+      112;
 
 
     for (
@@ -1450,7 +1455,7 @@ export async function buatPdfSuratJalan(
 
 
     const remarksY =
-      236;
+      210;
 
 
     doc
@@ -1491,7 +1496,7 @@ export async function buatPdfSuratJalan(
 
 
     let tableY =
-      258;
+      232;
 
 
     const tableWidth =
